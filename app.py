@@ -146,7 +146,33 @@ def register():
         if conn:
             conn.close()
 
+@app.route('/login', methods=['POST'])
+def login():
+    try:
+        data = request.json
+        email = data.get('email')
+        password = data.get('password') # In a production app, we will hash this!
 
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Look up the user by their email and password
+        cursor.execute(
+            "SELECT id FROM users WHERE email = ? AND password = ?", 
+            (email, password)
+        )
+        user = cursor.fetchone()
+        conn.close()
+
+        if user:
+            # Match found! Send back the user_id so Flutter can log them in
+            return jsonify({"message": "Login successful", "user_id": user["id"]}), 200
+        else:
+            # No match found
+            return jsonify({"error": "Invalid email or password"}), 401
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 @app.route('/update_status', methods=['POST'])
 def update_status():
     data = request.json or {}
