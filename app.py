@@ -264,7 +264,7 @@ def get_user_profile(user_id):
             "coffee_shop": user["coffee_shop"],
             "bio": user["bio"],
             "image": img_url,
-            "caffeine_status": user["caffeine_status"]
+            "caffeine_status": user["caffeine_status"] if "caffeine_status" in user.keys() else "Chilling"
         }
     }), 200
 
