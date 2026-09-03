@@ -6,10 +6,19 @@ import time
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
+from flask import Flask
+from flask_sqlalchemy import SQLAlchemy
 
 app = Flask(__name__)
 CORS(app)
+# -----------------------------------------------------------
+# YOUR NEW PERMANENT NEON DATABASE!
+# -----------------------------------------------------------
+# Notice we added '+psycopg2' after postgresql so Python knows how to read it
+app.config['SQLALCHEMY_DATABASE_URI'] = "postgresql+psycopg2://neondb_owner:ownerpass@ep-dawn-bird-b3t81mqc-pooler.c-4.ap-southeast-1.aws.neon.tech/neondb?sslmode=require"
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
+db = SQLAlchemy(app)
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
