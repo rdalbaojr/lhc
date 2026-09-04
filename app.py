@@ -16,7 +16,7 @@ CORS(app)
 # -----------------------------------------------------------
 # YOUR NEON POSTGRESQL CONNECTION
 # -----------------------------------------------------------
-app.config['SQLALCHEMY_DATABASE_URI'] = "postgresql+psycopg2://neondb_owner:ownerpass@ep-dawn-bird-b3t81mqc-pooler.c-4.ap-southeast-1.aws.neon.tech/neondb?sslmode=require"
+app.config['SQLALCHEMY_DATABASE_URI'] = "postgresql+psycopg2://neondb_owner:npg_daE6fcPxb8Wt@ep-dawn-bird-b3t81mqc-pooler.c-4.ap-southeast-1.aws.neon.tech/neondb?sslmode=require"
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
