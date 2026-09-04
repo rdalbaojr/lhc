@@ -71,6 +71,10 @@ class DateInvite(db.Model):
     status = db.Column(db.String(50), default='Pending')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+# Force Render to build the tables when it wakes up!
+with app.app_context():
+    db.create_all()
+
 # ==========================================
 # API ENDPOINTS
 # ==========================================
