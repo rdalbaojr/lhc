@@ -76,34 +76,59 @@ class DateInvite(db.Model):
 with app.app_context():
     db.create_all()
 
-
 def get_nearest_cafe(lat, lng):
-    """
-    Translates raw GPS coordinates into the nearest coffee shop name.
-    Currently uses the free OpenStreetMap (Overpass) API for testing.
-    """
     if not lat or not lng:
         return None
         
     try:
-        # Search for a cafe within a 1000-meter radius
         overpass_url = "http://overpass-api.de/api/interpreter"
         query = f"""
         [out:json];
         node["amenity"="cafe"](around:1000,{lat},{lng});
         out 1;
         """
-        response = requests.get(overpass_url, params={'data': query}, timeout=5)
+        # Add a fake User-Agent so they don't block the request!
+        headers = {'User-Agent': 'LetsHaveCoffeeApp/1.0'}
+        response = requests.get(overpass_url, params={'data': query}, headers=headers, timeout=5)
         data = response.json()
         
         if data.get('elements'):
-            # Grab the name of the cafe, or default to "Local Cafe" if unnamed
-            cafe_name = data['elements'][0].get('tags', {}).get('name', 'Local Cafe')
-            return cafe_name
+            return data['elements'][0].get('tags', {}).get('name', 'Local Cafe')
     except Exception as e:
-        print(f"Geocoding error: {e}")
+        print(f"🚨 Geocoding error: {e}")
         
-    return None
+    # Force Render to build the tables when it wakes up!
+with app.app_context():
+    db.create_all()
+
+def get_nearest_cafe(lat, lng):
+    if not lat or not lng:
+        return None
+        
+    try:
+        overpass_url = "http://overpass-api.de/api/interpreter"
+        query = f"""
+        [out:json];
+        node["amenity"="cafe"](around:1000,{lat},{lng});
+        out 1;
+        """
+        # Add a fake User-Agent so they don't block the request!
+        headers = {'User-Agent': 'LetsHaveCoffeeApp/1.0'}
+        response = requests.get(overpass_url, params={'data': query}, headers=headers, timeout=5)
+        data = response.json()
+        
+        if data.get('elements'):
+            return data['elements'][0].get('tags', {}).get('name', 'Local Cafe')
+    except Exception as e:
+        print(f"🚨 Geocoding error: {e}")
+        
+    # If the API fails, return raw Kapitolyo coordinates so we know it worked!
+    return f"Lat {round(lat, 3)}, Lng {round(lng, 3)}"
+
+# ==========================================
+# API ENDPOINTS
+# ==========================================
+@app.route('/ping', methods=['GET'])
 # ==========================================
 # API ENDPOINTS
 # ==========================================
@@ -153,11 +178,13 @@ def register():
 @app.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
-    # Force lowercase on the backend just to be extra safe!
     email = data.get('email', '').strip().lower()
     password = data.get('password', '')
     lat = data.get('lat')
     lng = data.get('lng')
+
+    # NEW LINE: Force Render to show us what the phone actually sent!
+    print(f"🚨 DEBUG LOGIN - Email: {email} | Lat: {lat} | Lng: {lng}")
 
     # 1. Verify user credentials (UNCOMMENTED!)
     user = User.query.filter_by(email=email, password=password).first()
