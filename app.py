@@ -153,14 +153,17 @@ def register():
 @app.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
-    email = data.get('email')
-    password = data.get('password')
+    # Force lowercase on the backend just to be extra safe!
+    email = data.get('email', '').strip().lower()
+    password = data.get('password', '')
     lat = data.get('lat')
     lng = data.get('lng')
 
-    # 1. Verify user credentials (your existing logic here)
-    # user = User.query.filter_by(email=email, password=password).first()
-    # if not user: return jsonify({"error": "Invalid"}), 401
+    # 1. Verify user credentials (UNCOMMENTED!)
+    user = User.query.filter_by(email=email, password=password).first()
+    
+    if not user: 
+        return jsonify({"error": "Invalid"}), 401
     
     # 2. If login is successful and we have coordinates, find the cafe!
     if lat and lng:
@@ -168,8 +171,8 @@ def login():
         
         if nearest_cafe:
             # Update the user's current coffee shop in the Neon database
-            # user.coffee_shop = nearest_cafe
-            # db.session.commit()
+            user.coffee_shop = nearest_cafe
+            db.session.commit()
             print(f"Updated user's location to: {nearest_cafe}")
 
     return jsonify({"message": "Login successful", "user_id": user.id}), 200
