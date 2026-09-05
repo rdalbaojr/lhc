@@ -129,10 +129,6 @@ def get_nearest_cafe(lat, lng):
 # API ENDPOINTS
 # ==========================================
 @app.route('/ping', methods=['GET'])
-# ==========================================
-# API ENDPOINTS
-# ==========================================
-@app.route('/ping', methods=['GET'])
 def ping():
     return jsonify({"status": "success", "message": "Coffee Sparks server is awake!"})
 
