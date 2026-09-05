@@ -104,25 +104,33 @@ with app.app_context():
 def get_nearest_cafe(lat, lng):
     if not lat or not lng:
         return None
-        
+
+    # TODO: Paste your actual Google Cloud API Key here!
+    GOOGLE_API_KEY = "YOUR_GOOGLE_API_KEY_HERE"
+    
     try:
-        overpass_url = "http://overpass-api.de/api/interpreter"
-        query = f"""
-        [out:json];
-        node["amenity"="cafe"](around:1000,{lat},{lng});
-        out 1;
-        """
-        # Add a fake User-Agent so they don't block the request!
-        headers = {'User-Agent': 'LetsHaveCoffeeApp/1.0'}
-        response = requests.get(overpass_url, params={'data': query}, headers=headers, timeout=5)
+        # We use the Google Places API (Nearby Search)
+        url = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
+        params = {
+            'location': f"{lat},{lng}",
+            'radius': 1000,       # Search within a 1-kilometer radius
+            'type': 'cafe',       # Look for cafes
+            'keyword': 'coffee',  # Specifically ensure they serve coffee
+            'key': GOOGLE_API_KEY
+        }
+        
+        response = requests.get(url, params=params, timeout=5)
         data = response.json()
         
-        if data.get('elements'):
-            return data['elements'][0].get('tags', {}).get('name', 'Local Cafe')
+        # If Google finds places, grab the name of the very first result
+        if data.get('status') == 'OK' and data.get('results'):
+            best_cafe = data['results'][0].get('name')
+            return best_cafe
+            
     except Exception as e:
-        print(f"🚨 Geocoding error: {e}")
+        print(f"🚨 Google Maps API error: {e}")
         
-    # If the API fails, return raw Kapitolyo coordinates so we know it worked!
+    # Our trusty fallback just in case Google's servers blink
     return f"Lat {round(lat, 3)}, Lng {round(lng, 3)}"
 
 # ==========================================
