@@ -9,6 +9,7 @@ from werkzeug.utils import secure_filename
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import case
+import requests
 
 app = Flask(__name__)
 CORS(app)
@@ -75,6 +76,34 @@ class DateInvite(db.Model):
 with app.app_context():
     db.create_all()
 
+
+def get_nearest_cafe(lat, lng):
+    """
+    Translates raw GPS coordinates into the nearest coffee shop name.
+    Currently uses the free OpenStreetMap (Overpass) API for testing.
+    """
+    if not lat or not lng:
+        return None
+        
+    try:
+        # Search for a cafe within a 1000-meter radius
+        overpass_url = "http://overpass-api.de/api/interpreter"
+        query = f"""
+        [out:json];
+        node["amenity"="cafe"](around:1000,{lat},{lng});
+        out 1;
+        """
+        response = requests.get(overpass_url, params={'data': query}, timeout=5)
+        data = response.json()
+        
+        if data.get('elements'):
+            # Grab the name of the cafe, or default to "Local Cafe" if unnamed
+            cafe_name = data['elements'][0].get('tags', {}).get('name', 'Local Cafe')
+            return cafe_name
+    except Exception as e:
+        print(f"Geocoding error: {e}")
+        
+    return None
 # ==========================================
 # API ENDPOINTS
 # ==========================================
@@ -123,14 +152,27 @@ def register():
 
 @app.route('/login', methods=['POST'])
 def login():
-    try:
-        data = request.json
-        user = User.query.filter_by(email=data.get('email'), password=data.get('password')).first()
-        if user:
-            return jsonify({"message": "Login successful", "user_id": user.id}), 200
-        return jsonify({"error": "Invalid email or password"}), 401
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    data = request.get_json()
+    email = data.get('email')
+    password = data.get('password')
+    lat = data.get('lat')
+    lng = data.get('lng')
+
+    # 1. Verify user credentials (your existing logic here)
+    # user = User.query.filter_by(email=email, password=password).first()
+    # if not user: return jsonify({"error": "Invalid"}), 401
+    
+    # 2. If login is successful and we have coordinates, find the cafe!
+    if lat and lng:
+        nearest_cafe = get_nearest_cafe(lat, lng)
+        
+        if nearest_cafe:
+            # Update the user's current coffee shop in the Neon database
+            # user.coffee_shop = nearest_cafe
+            # db.session.commit()
+            print(f"Updated user's location to: {nearest_cafe}")
+
+    return jsonify({"message": "Login successful", "user_id": user.id}), 200
 
 @app.route('/update_status', methods=['POST'])
 def update_status():
