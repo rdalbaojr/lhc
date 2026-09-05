@@ -8,7 +8,6 @@ from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import case
 import requests
 
 app = Flask(__name__)
@@ -59,7 +58,6 @@ class UserLike(db.Model):
     from_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     to_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    # Ensure a user can only like another user once
     __table_args__ = (db.UniqueConstraint('from_user_id', 'to_user_id', name='unique_like'),)
 
 class DateInvite(db.Model):
@@ -76,31 +74,9 @@ class DateInvite(db.Model):
 with app.app_context():
     db.create_all()
 
-def get_nearest_cafe(lat, lng):
-    if not lat or not lng:
-        return None
-        
-    try:
-        overpass_url = "http://overpass-api.de/api/interpreter"
-        query = f"""
-        [out:json];
-        node["amenity"="cafe"](around:1000,{lat},{lng});
-        out 1;
-        """
-        # Add a fake User-Agent so they don't block the request!
-        headers = {'User-Agent': 'LetsHaveCoffeeApp/1.0'}
-        response = requests.get(overpass_url, params={'data': query}, headers=headers, timeout=5)
-        data = response.json()
-        
-        if data.get('elements'):
-            return data['elements'][0].get('tags', {}).get('name', 'Local Cafe')
-    except Exception as e:
-        print(f"🚨 Geocoding error: {e}")
-        
-    # Force Render to build the tables when it wakes up!
-with app.app_context():
-    db.create_all()
-
+# ==========================================
+# GOOGLE MAPS GPS TRANSLATION
+# ==========================================
 def get_nearest_cafe(lat, lng):
     if not lat or not lng:
         return None
@@ -109,28 +85,24 @@ def get_nearest_cafe(lat, lng):
     GOOGLE_API_KEY = "YOUR_GOOGLE_API_KEY_HERE"
     
     try:
-        # We use the Google Places API (Nearby Search)
         url = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
         params = {
             'location': f"{lat},{lng}",
-            'radius': 1000,       # Search within a 1-kilometer radius
-            'type': 'cafe',       # Look for cafes
-            'keyword': 'coffee',  # Specifically ensure they serve coffee
+            'radius': 1000,
+            'type': 'cafe',
+            'keyword': 'coffee',
             'key': GOOGLE_API_KEY
         }
         
         response = requests.get(url, params=params, timeout=5)
         data = response.json()
         
-        # If Google finds places, grab the name of the very first result
         if data.get('status') == 'OK' and data.get('results'):
-            best_cafe = data['results'][0].get('name')
-            return best_cafe
+            return data['results'][0].get('name')
             
     except Exception as e:
         print(f"🚨 Google Maps API error: {e}")
         
-    # Our trusty fallback just in case Google's servers blink
     return f"Lat {round(lat, 3)}, Lng {round(lng, 3)}"
 
 # ==========================================
@@ -187,21 +159,16 @@ def login():
     lat = data.get('lat')
     lng = data.get('lng')
 
-    # NEW LINE: Force Render to show us what the phone actually sent!
     print(f"🚨 DEBUG LOGIN - Email: {email} | Lat: {lat} | Lng: {lng}")
 
-    # 1. Verify user credentials (UNCOMMENTED!)
     user = User.query.filter_by(email=email, password=password).first()
     
     if not user: 
         return jsonify({"error": "Invalid"}), 401
     
-    # 2. If login is successful and we have coordinates, find the cafe!
     if lat and lng:
         nearest_cafe = get_nearest_cafe(lat, lng)
-        
         if nearest_cafe:
-            # Update the user's current coffee shop in the Neon database
             user.coffee_shop = nearest_cafe
             db.session.commit()
             print(f"Updated user's location to: {nearest_cafe}")
@@ -246,7 +213,6 @@ def get_feed():
     current_user = User.query.get(current_user_id)
     current_shop = current_user.coffee_shop.lower() if current_user and current_user.coffee_shop else ""
 
-    # Fetch all users except current, sort by same coffee shop first
     users = User.query.filter(User.id != current_user_id).all()
     users.sort(key=lambda u: (u.coffee_shop.lower() == current_shop if u.coffee_shop else False), reverse=True)
 
@@ -360,13 +326,11 @@ def like_user():
     if not from_user or not to_user:
         return jsonify({"status": "error", "message": "Missing user IDs"}), 400
 
-    # Avoid duplicate likes
     existing_like = UserLike.query.filter_by(from_user_id=from_user, to_user_id=to_user).first()
     if not existing_like:
         db.session.add(UserLike(from_user_id=from_user, to_user_id=to_user))
         db.session.commit()
 
-    # Check for mutual match
     mutual = UserLike.query.filter_by(from_user_id=to_user, to_user_id=from_user).first()
     return jsonify({"status": "success", "is_match": mutual is not None}), 200
 
@@ -375,16 +339,13 @@ def get_user_stats(user_id):
     user = User.query.get(user_id)
     current_shop = user.coffee_shop.lower() if user and user.coffee_shop else ""
 
-    # Similar Vibes
     vibes_count = User.query.filter(
         db.func.lower(User.coffee_shop) == current_shop, 
         User.id != user_id
     ).count()
 
-    # Local Likes
     likes_count = UserLike.query.filter_by(to_user_id=user_id).count()
 
-    # Match Brew (Mutual)
     likes_sent = db.session.query(UserLike.to_user_id).filter_by(from_user_id=user_id).subquery()
     match_count = UserLike.query.filter(
         UserLike.to_user_id == user_id,
@@ -402,12 +363,10 @@ def get_insight_details(category, user_id):
     if category == 'similar_vibes':
         rows = User.query.filter(db.func.lower(User.coffee_shop) == current_shop, User.id != user_id).all()
         title = f"Similar Coffee Vibes ({user.coffee_shop})"
-    
     elif category == 'local_likes':
         likers = db.session.query(UserLike.from_user_id).filter_by(to_user_id=user_id).subquery()
         rows = User.query.filter(User.id.in_(likers)).all()
         title = "Local Coffee Likes"
-    
     elif category == 'match_brew':
         likes_sent = db.session.query(UserLike.to_user_id).filter_by(from_user_id=user_id).subquery()
         mutual_likers = db.session.query(UserLike.from_user_id).filter(
@@ -434,8 +393,5 @@ def get_insight_details(category, user_id):
 
 if __name__ == '__main__':
     with app.app_context():
-        # This single line replaces your old setup_database function!
-        # It reads your SQLAlchemy models and automatically builds the tables in Neon Postgres.
         db.create_all()
-    
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
