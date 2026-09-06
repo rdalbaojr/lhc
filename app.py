@@ -82,7 +82,7 @@ def get_nearest_cafe(lat, lng):
         return None
 
     # TODO: Paste your actual Google Cloud API Key here!
-    GOOGLE_API_KEY = "YOUR_GOOGLE_API_KEY_HERE"
+    GOOGLE_API_KEY = "AIzaSyBARV7naQiJJdcq-3YDV36s5cFutfLq9dg"
     
     try:
         url = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
