@@ -398,6 +398,41 @@ def get_insight_details(category, user_id):
         })
 
     return jsonify({"status": "success", "title": title, "users": users_list}), 200
+  @app.route('/send_message', methods=['POST'])
+def send_message():
+    data = request.json or {}
+    new_msg = Message(
+        from_user_id=data.get('from_user_id'),
+        to_user_id=data.get('to_user_id'),
+        content=data.get('content')
+    )
+    db.session.add(new_msg)
+    db.session.commit()
+    return jsonify({"status": "success", "message": "Sent!"}), 201
+  @app.route('/send_message', methods=['POST'])
+def send_message():
+    data = request.json or {}
+    new_msg = Message(
+        from_user_id=data.get('from_user_id'),
+        to_user_id=data.get('to_user_id'),
+        content=data.get('content')
+    )
+    db.session.add(new_msg)
+    db.session.commit()
+    return jsonify({"status": "success", "message": "Sent!"}), 201
+
+@app.route('/get_messages/<int:user1>/<int:user2>', methods=['GET'])
+def get_messages(user1, user2):
+    msgs = Message.query.filter(
+        db.or_(
+            db.and_(Message.from_user_id == user1, Message.to_user_id == user2),
+            db.and_(Message.from_user_id == user2, Message.to_user_id == user1)
+        )
+    ).order_by(Message.timestamp.asc()).all()
+    
+    chat_history = [{"sender": m.from_user_id, "text": m.content} for m in msgs]
+    return jsonify({"status": "success", "messages": chat_history}), 200
+  
 
 if __name__ == '__main__':
     with app.app_context():
