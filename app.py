@@ -9,14 +9,21 @@ from werkzeug.utils import secure_filename
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.exc import IntegrityError
 import requests
+from dotenv import load_dotenv
 
+# Load environment variables from a .env file for local development
+load_dotenv()
 app = Flask(__name__)
 CORS(app)
 
 # -----------------------------------------------------------
 # YOUR NEON POSTGRESQL CONNECTION
 # -----------------------------------------------------------
-app.config['SQLALCHEMY_DATABASE_URI'] = "postgresql+psycopg2://neondb_owner:npg_daE6fcPxb8Wt@ep-dawn-bird-b3t81mqc-pooler.c-4.ap-southeast-1.aws.neon.tech/neondb?sslmode=require"
+# We are keeping your Neon DB as the fallback so Render doesn't lose your data!
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
+    'DATABASE_URL', 
+    'postgresql+psycopg2://neondb_owner:npg_daE6fcPxb8Wt@ep-dawn-bird-b3t81mqc-pooler.c-4.ap-southeast-1.aws.neon.tech/neondb?sslmode=require'
+)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
@@ -89,9 +96,13 @@ def get_nearest_cafe(lat, lng):
     if not lat or not lng:
         return None
 
-    # TODO: Paste your actual Google Cloud API Key here!
-    GOOGLE_API_KEY = "AIzaSyBARV7naQiJJdcq-3YDV36s5cFutfLq9dg"
+    # Fetch the API key securely from the environment
+    GOOGLE_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY")
     
+    if not GOOGLE_API_KEY:
+        print("🚨 Warning: Google Maps API key is missing!")
+        return f"Lat {round(lat, 3)}, Lng {round(lng, 3)}"
+
     try:
         url = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
         params = {
@@ -398,18 +409,8 @@ def get_insight_details(category, user_id):
         })
 
     return jsonify({"status": "success", "title": title, "users": users_list}), 200
-  @app.route('/send_message', methods=['POST'])
-def send_message():
-    data = request.json or {}
-    new_msg = Message(
-        from_user_id=data.get('from_user_id'),
-        to_user_id=data.get('to_user_id'),
-        content=data.get('content')
-    )
-    db.session.add(new_msg)
-    db.session.commit()
-    return jsonify({"status": "success", "message": "Sent!"}), 201
-  @app.route('/send_message', methods=['POST'])
+
+@app.route('/send_message', methods=['POST'])
 def send_message():
     data = request.json or {}
     new_msg = Message(
@@ -432,7 +433,6 @@ def get_messages(user1, user2):
     
     chat_history = [{"sender": m.from_user_id, "text": m.content} for m in msgs]
     return jsonify({"status": "success", "messages": chat_history}), 200
-  
 
 if __name__ == '__main__':
     with app.app_context():
