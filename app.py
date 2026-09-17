@@ -10,14 +10,14 @@ from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
-# Put this near the top of app.py right after app = Flask(__name__)
-setup_database()
 CORS(app)
 
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
+# --- FORCE TABLE CREATION GLOBALLY ON STARTUP ---
+setup_database()
 
 def get_db_connection():
     conn = sqlite3.connect('coffee_sparks.db')
