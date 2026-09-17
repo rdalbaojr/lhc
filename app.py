@@ -210,20 +210,23 @@ def register():
 
 @app.route('/upload_private_moment', methods=['POST'])
 def upload_private_moment():
-    data = request.json or {}
-    user_id = data.get('user_id')
-    image_base64 = data.get('image_base64')
-    caption = data.get('caption', '')
+    user_id = request.form.get('user_id')
+    caption = request.form.get('caption', '')
+    file = request.files.get('image')
     
-    if not user_id or not image_base64:
-        return jsonify({"error": "Missing user_id or image"}), 400
+    if not user_id or not file:
+        return jsonify({"status": "error", "message": "Missing user_id or image file"}), 400
         
+    filename = secure_filename(f"moment_{user_id}_{int(time.time())}.jpg")
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    file.save(filepath)
+    
     conn = get_db_connection()
     try:
         conn.execute('INSERT INTO private_moments (user_id, image_base64, caption) VALUES (?, ?, ?)',
-                     (user_id, image_base64, caption))
+                     (user_id, filename, caption)) # storing filename/path cleanly
         conn.commit()
-        return jsonify({"status": "success", "message": "Private moment saved successfully!"}), 201
+        return jsonify({"status": "success", "message": "Saved!"}), 201
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
