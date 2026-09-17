@@ -238,10 +238,15 @@ def get_secret_moments(viewer_id, target_id):
     
     moments = []
     for r in rows:
+        img_data = r['image_base64']
+        # Strip out data URI scheme prefix if it accidentally got saved
+        if img_data and ',' in img_data:
+            img_data = img_data.split(',')[1]
+            
         moments.append({
             "id": r['id'],
-            "image": r['image_base64'],
-            "caption": r['caption'],
+            "image": img_data,
+            "caption": r['caption'] or "",
             "timestamp": r['timestamp']
         })
     return jsonify({"status": "success", "moments": moments}), 200
