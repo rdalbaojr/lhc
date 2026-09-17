@@ -284,7 +284,29 @@ def get_secret_moments(viewer_id, target_id):
         })
     return jsonify({"status": "success", "moments": moments}), 200
 
-
+@app.route('/delete_private_moment/<int:moment_id>', methods=['DELETE'])
+def delete_private_moment(moment_id):
+    conn = get_db_connection()
+    row = conn.execute('SELECT image_base64 FROM private_moments WHERE id = ?', (moment_id,)).fetchone()
+    
+    if not row:
+        conn.close()
+        return jsonify({"status": "error", "message": "Moment not found"}), 404
+        
+    filename = row['image_base64']
+    if filename:
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        if os.path.exists(filepath):
+            try:
+                os.remove(filepath)
+            except Exception as e:
+                print(f"Error deleting file: {e}")
+                
+    conn.execute('DELETE FROM private_moments WHERE id = ?', (moment_id,))
+    conn.commit()
+    conn.close()
+    
+    return jsonify({"status": "success", "message": "Secret moment deleted successfully!"}), 200
 @app.route('/feed', methods=['GET'])
 def get_feed():
     current_user_id = request.args.get('user_id', default=1, type=int)
