@@ -10,6 +10,8 @@ from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
+# Put this near the top of app.py right after app = Flask(__name__)
+setup_database()
 CORS(app)
 
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
@@ -430,5 +432,5 @@ def get_insight_details(category, user_id):
 
 
 if __name__ == '__main__':
-    setup_database()
+    setup_database()  # <-- This must be here so the table gets created!
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
