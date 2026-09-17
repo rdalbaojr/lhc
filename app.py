@@ -248,14 +248,13 @@ def get_secret_moments(viewer_id, target_id):
     
     moments = []
     for r in rows:
-        img_data = r['image_base64']
-        # Strip out data URI scheme prefix if it accidentally got saved
-        if img_data and ',' in img_data:
-            img_data = img_data.split(',')[1]
+        filename = r['image_base64'] or ''
+        # Convert filename to a full public URL so Flutter can load it via NetworkImage
+        img_url = f"{request.host_url}uploads/{filename}" if filename else ""
             
         moments.append({
             "id": r['id'],
-            "image": img_data,
+            "image": img_url,
             "caption": r['caption'] or "",
             "timestamp": r['timestamp']
         })
