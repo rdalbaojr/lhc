@@ -210,29 +210,30 @@ def register():
 
 @app.route('/upload_private_moment', methods=['POST'])
 def upload_private_moment():
-    user_id = request.form.get('user_id')
-    caption = request.form.get('caption', '')
-    file = request.files.get('image')
+    data = request.get_json(force=True, silent=True) or {}
+    user_id = data.get('user_id')
+    image_base64 = data.get('image_base64')
+    caption = data.get('caption', '')
     
-    if not user_id or not file:
-        return jsonify({"status": "error", "message": "Missing user_id or image file"}), 400
+    if not user_id or not image_base64:
+        return jsonify({"status": "error", "message": "Missing user_id or image"}), 400
         
-    # Check if the file extension is a valid image format
-    allowed_extensions = {'.jpg', '.jpeg', '.png', '.webp'}
-    ext = os.path.splitext(file.filename)[1].lower()
-    if ext not in allowed_extensions:
-        return jsonify({"status": "error", "message": "Invalid file type. Please upload a JPEG or PNG image."}), 400
-
-    filename = secure_filename(f"moment_{user_id}_{int(time.time())}{ext}")
+    filename = secure_filename(f"moment_{user_id}_{int(time.time())}.jpg")
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    file.save(filepath)
     
+    try:
+        with open(filepath, "wb") as fh:
+            fh.write(base64.b64decode(image_base64))
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Error saving file: {e}"}), 500
+
     conn = get_db_connection()
     try:
+        # Save the generated filename into the database
         conn.execute('INSERT INTO private_moments (user_id, image_base64, caption) VALUES (?, ?, ?)',
                      (user_id, filename, caption))
         conn.commit()
-        return jsonify({"status": "success", "message": "Saved!"}), 201
+        return jsonify({"status": "success", "message": "Private moment saved successfully!"}), 201
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
