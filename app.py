@@ -21,31 +21,6 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
-# DEFINE THE FUNCTION FIRST...
-def setup_database():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    # ... (all your table creations) ...
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS private_moments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            image_base64 TEXT,
-            caption TEXT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    conn.commit()
-    conn.close()
-
-# ...AND THEN CALL IT RIGHT HERE AFTER IT'S DEFINED:
-setup_database()
-
-def get_db_connection():
-    conn = sqlite3.connect('coffee_sparks.db')
-    conn.row_factory = sqlite3.Row
-    return conn
-
 def haversine_distance(lat1, lon1, lat2, lon2):
     if None in (lat1, lon1, lat2, lon2): return 999
     R = 6371.0
@@ -153,9 +128,35 @@ def setup_database():
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+
+    # 6. Messages Table (ADDED)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            from_user_id INTEGER NOT NULL,
+            to_user_id INTEGER NOT NULL,
+            content TEXT NOT NULL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(from_user_id) REFERENCES users(id),
+            FOREIGN KEY(to_user_id) REFERENCES users(id)
+        )
+    ''')
+
+    # 7. Secret Access Permissions Table (ADDED)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS secret_access (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            owner_id INTEGER NOT NULL,
+            viewer_id INTEGER NOT NULL,
+            UNIQUE(owner_id, viewer_id)
+        )
+    ''')
     
     conn.commit()
     conn.close()
+
+# Run table setup globally on startup
+setup_database()
 
 
 @app.route('/ping', methods=['GET'])
@@ -253,7 +254,6 @@ def upload_private_moment():
 
     conn = get_db_connection()
     try:
-        # Save the generated filename into the database
         conn.execute('INSERT INTO private_moments (user_id, image_base64, caption) VALUES (?, ?, ?)',
                      (user_id, filename, caption))
         conn.commit()
@@ -267,13 +267,20 @@ def upload_private_moment():
 @app.route('/get_secret_moments/<int:viewer_id>/<int:target_id>', methods=['GET'])
 def get_secret_moments(viewer_id, target_id):
     conn = get_db_connection()
+    
+    unlocked = True
+    if viewer_id != target_id:
+        access = conn.execute('''
+            SELECT 1 FROM secret_access WHERE owner_id = ? AND viewer_id = ?
+        ''', (target_id, viewer_id)).fetchone()
+        unlocked = access is not None
+
     rows = conn.execute('SELECT id, image_base64, caption, timestamp FROM private_moments WHERE user_id = ? ORDER BY id DESC', (target_id,)).fetchall()
     conn.close()
     
     moments = []
     for r in rows:
         filename = r['image_base64'] or ''
-        # Convert filename to a full public URL so Flutter can load it via NetworkImage
         img_url = f"{request.host_url}uploads/{filename}" if filename else ""
             
         moments.append({
@@ -282,7 +289,31 @@ def get_secret_moments(viewer_id, target_id):
             "caption": r['caption'] or "",
             "timestamp": r['timestamp']
         })
-    return jsonify({"status": "success", "moments": moments}), 200
+    return jsonify({"status": "success", "unlocked": unlocked, "moments": moments}), 200
+
+
+@app.route('/grant_secret_access', methods=['POST'])
+def grant_secret_access():
+    data = request.get_json(force=True, silent=True) or {}
+    owner_id = data.get('owner_id')
+    viewer_id = data.get('viewer_id')
+
+    if not owner_id or not viewer_id:
+        return jsonify({"status": "error", "message": "Missing IDs"}), 400
+
+    conn = get_db_connection()
+    try:
+        conn.execute('''
+            INSERT OR IGNORE INTO secret_access (owner_id, viewer_id)
+            VALUES (?, ?)
+        ''', (owner_id, viewer_id))
+        conn.commit()
+        return jsonify({"status": "success", "message": "Access granted!"}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        conn.close()
+
 
 @app.route('/delete_private_moment/<int:moment_id>', methods=['DELETE'])
 def delete_private_moment(moment_id):
@@ -307,6 +338,56 @@ def delete_private_moment(moment_id):
     conn.close()
     
     return jsonify({"status": "success", "message": "Secret moment deleted successfully!"}), 200
+
+
+# --- CHAT / MESSAGING ROUTES (ADDED) ---
+
+@app.route('/get_messages/<int:user1_id>/<int:user2_id>', methods=['GET'])
+def get_messages(user1_id, user2_id):
+    conn = get_db_connection()
+    rows = conn.execute('''
+        SELECT from_user_id, to_user_id, content, timestamp 
+        FROM messages 
+        WHERE (from_user_id = ? AND to_user_id = ?) 
+           OR (from_user_id = ? AND to_user_id = ?)
+        ORDER BY id ASC
+    ''', (user1_id, user2_id, user2_id, user1_id)).fetchall()
+    conn.close()
+
+    messages = []
+    for r in rows:
+        messages.append({
+            "sender": r['from_user_id'],
+            "text": r['content'],
+            "timestamp": r['timestamp']
+        })
+    return jsonify({"status": "success", "messages": messages}), 200
+
+
+@app.route('/send_message', methods=['POST'])
+def send_message():
+    data = request.get_json(force=True, silent=True) or {}
+    from_id = data.get('from_user_id')
+    to_id = data.get('to_user_id')
+    content = data.get('content', '')
+
+    if not from_id or not to_id or not content:
+        return jsonify({"status": "error", "message": "Missing fields"}), 400
+
+    conn = get_db_connection()
+    try:
+        conn.execute('''
+            INSERT INTO messages (from_user_id, to_user_id, content)
+            VALUES (?, ?, ?)
+        ''', (from_id, to_id, content))
+        conn.commit()
+        return jsonify({"status": "success", "message": "Message sent!"}), 201
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        conn.close()
+
+
 @app.route('/feed', methods=['GET'])
 def get_feed():
     current_user_id = request.args.get('user_id', default=1, type=int)
@@ -476,5 +557,4 @@ def get_insight_details(category, user_id):
 
 
 if __name__ == '__main__':
-    setup_database()  # <-- This must be here so the table gets created!
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
