@@ -16,7 +16,29 @@ UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-# --- FORCE TABLE CREATION GLOBALLY ON STARTUP ---
+def get_db_connection():
+    conn = sqlite3.connect('coffee_sparks.db')
+    conn.row_factory = sqlite3.Row
+    return conn
+
+# DEFINE THE FUNCTION FIRST...
+def setup_database():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    # ... (all your table creations) ...
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS private_moments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            image_base64 TEXT,
+            caption TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+# ...AND THEN CALL IT RIGHT HERE AFTER IT'S DEFINED:
 setup_database()
 
 def get_db_connection():
