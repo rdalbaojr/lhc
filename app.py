@@ -217,14 +217,20 @@ def upload_private_moment():
     if not user_id or not file:
         return jsonify({"status": "error", "message": "Missing user_id or image file"}), 400
         
-    filename = secure_filename(f"moment_{user_id}_{int(time.time())}.jpg")
+    # Check if the file extension is a valid image format
+    allowed_extensions = {'.jpg', '.jpeg', '.png', '.webp'}
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in allowed_extensions:
+        return jsonify({"status": "error", "message": "Invalid file type. Please upload a JPEG or PNG image."}), 400
+
+    filename = secure_filename(f"moment_{user_id}_{int(time.time())}{ext}")
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     file.save(filepath)
     
     conn = get_db_connection()
     try:
         conn.execute('INSERT INTO private_moments (user_id, image_base64, caption) VALUES (?, ?, ?)',
-                     (user_id, filename, caption)) # storing filename/path cleanly
+                     (user_id, filename, caption))
         conn.commit()
         return jsonify({"status": "success", "message": "Saved!"}), 201
     except Exception as e:
