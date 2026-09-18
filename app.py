@@ -153,7 +153,20 @@ def setup_database():
             UNIQUE(owner_id, viewer_id, moment_id)
         )
     ''')
-    
+    # Profile Wall Comments Table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS profile_comments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            profile_user_id INTEGER NOT NULL,
+            commenter_user_id INTEGER NOT NULL,
+            commenter_name TEXT NOT NULL,
+            commenter_image TEXT,
+            comment TEXT NOT NULL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(profile_user_id) REFERENCES users(id),
+            FOREIGN KEY(commenter_user_id) REFERENCES users(id)
+        )
+    ''')
     conn.commit()
     conn.close()
 
@@ -390,8 +403,62 @@ def send_message():
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         conn.close()
+@app.route('/post_comment', methods=['POST'])
+def post_comment():
+    data = request.get_json(force=True, silent=True) or {}
+    profile_id = data.get('profile_user_id')
+    commenter_id = data.get('commenter_user_id')
+    commenter_name = data.get('commenter_name', 'Coffee Passersby')
+    commenter_image = data.get('commenter_image', '')
+    text = data.get('comment', '').strip()
 
+    if not profile_id or not commenter_id or not text:
+        return jsonify({"status": "error", "message": "Missing fields"}), 400
 
+    # Basic Positive Filter: Block harsh or negative words on public wall
+    lower_text = text.lower()
+    negative_words = ['ugly', 'hate', 'bad', 'horrible', 'stupid', 'loser', 'trash', 'scam']
+    if any(word in lower_text for word in negative_words):
+        return jsonify({
+            "status": "error", 
+            "message": "Public wall keeps good vibes only! Save the spicy banter for private chat rooms ☕"
+        }), 400
+
+    conn = get_db_connection()
+    try:
+        conn.execute('''
+            INSERT INTO profile_comments (profile_user_id, commenter_user_id, commenter_name, commenter_image, comment)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (profile_id, commenter_id, commenter_name, commenter_image, text))
+        conn.commit()
+        return jsonify({"status": "success", "message": "Comment posted!"}), 201
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        conn.close()
+
+@app.route('/get_comments/<int:profile_user_id>', methods=['GET'])
+def get_comments(profile_user_id):
+    conn = get_db_connection()
+    rows = conn.execute('''
+        SELECT id, commenter_user_id, commenter_name, commenter_image, comment, timestamp
+        FROM profile_comments
+        WHERE profile_user_id = ?
+        ORDER BY id DESC
+    ''', (profile_user_id,)).fetchall()
+    conn.close()
+
+    comments = []
+    for r in rows:
+        comments.append({
+            "id": r['id'],
+            "commenter_id": r['commenter_user_id'],
+            "name": r['commenter_name'],
+            "image": r['commenter_image'],
+            "comment": r['comment'],
+            "timestamp": r['timestamp']
+        })
+    return jsonify({"status": "success", "comments": comments}), 200
 @app.route('/feed', methods=['GET'])
 def get_feed():
     current_user_id = request.args.get('user_id', default=1, type=int)
