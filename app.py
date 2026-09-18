@@ -120,7 +120,7 @@ def setup_database():
 
     # 5. Private Moments (Secret Brews) Table
     cursor.execute('''
-        CREATE TABLE IF NOT EfXISTS private_moments (
+        CREATE TABLE IF NOT EXISTS private_moments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
             image_base64 TEXT,
@@ -314,16 +314,17 @@ def grant_secret_access():
     data = request.get_json(force=True, silent=True) or {}
     owner_id = data.get('owner_id')
     viewer_id = data.get('viewer_id')
+    moment_id = data.get('moment_id') # <-- Added moment_id requirement
 
-    if not owner_id or not viewer_id:
+    if not owner_id or not viewer_id or not moment_id:
         return jsonify({"status": "error", "message": "Missing IDs"}), 400
 
     conn = get_db_connection()
     try:
         conn.execute('''
-            INSERT OR IGNORE INTO secret_access (owner_id, viewer_id)
-            VALUES (?, ?)
-        ''', (owner_id, viewer_id))
+            INSERT OR IGNORE INTO secret_access (owner_id, viewer_id, moment_id)
+            VALUES (?, ?, ?)
+        ''', (owner_id, viewer_id, moment_id)) # <-- Inserting moment_id
         conn.commit()
         return jsonify({"status": "success", "message": "Access granted!"}), 200
     except Exception as e:
