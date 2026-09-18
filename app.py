@@ -120,7 +120,7 @@ def setup_database():
 
     # 5. Private Moments (Secret Brews) Table
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS private_moments (
+        CREATE TABLE IF NOT EfXISTS private_moments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
             image_base64 TEXT,
