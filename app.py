@@ -143,12 +143,14 @@ def setup_database():
     ''')
 
     # 7. Secret Access Permissions Table (ADDED)
+    # Granular Item-Level Access Permissions Table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS secret_access (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             owner_id INTEGER NOT NULL,
             viewer_id INTEGER NOT NULL,
-            UNIQUE(owner_id, viewer_id)
+            moment_id INTEGER NOT NULL,
+            UNIQUE(owner_id, viewer_id, moment_id)
         )
     ''')
     
@@ -267,30 +269,32 @@ def upload_private_moment():
 @app.route('/get_secret_moments/<int:viewer_id>/<int:target_id>', methods=['GET'])
 def get_secret_moments(viewer_id, target_id):
     conn = get_db_connection()
-    
-    unlocked = True
-    if viewer_id != target_id:
-        access = conn.execute('''
-            SELECT 1 FROM secret_access WHERE owner_id = ? AND viewer_id = ?
-        ''', (target_id, viewer_id)).fetchone()
-        unlocked = access is not None
-
     rows = conn.execute('SELECT id, image_base64, caption, timestamp FROM private_moments WHERE user_id = ? ORDER BY id DESC', (target_id,)).fetchall()
-    conn.close()
     
     moments = []
     for r in rows:
+        moment_id = r['id']
         filename = r['image_base64'] or ''
         img_url = f"{request.host_url}uploads/{filename}" if filename else ""
-            
+        
+        # Check if this specific item is unlocked for the viewer
+        unlocked = True
+        if viewer_id != target_id:
+            access = conn.execute('''
+                SELECT 1 FROM secret_access WHERE owner_id = ? AND viewer_id = ? AND moment_id = ?
+            ''', (target_id, viewer_id, moment_id)).fetchone()
+            unlocked = access is not None
+
         moments.append({
-            "id": r['id'],
+            "id": moment_id,
             "image": img_url,
             "caption": r['caption'] or "",
+            "unlocked": unlocked,
             "timestamp": r['timestamp']
         })
-    return jsonify({"status": "success", "unlocked": unlocked, "moments": moments}), 200
-
+        
+    conn.close()
+    return jsonify({"status": "success", "moments": moments}), 200
 
 @app.route('/grant_secret_access', methods=['POST'])
 def grant_secret_access():
