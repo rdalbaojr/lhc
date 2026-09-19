@@ -353,6 +353,7 @@ def register():
     coffee_shop = data.get('coffee_shop', 'Local Cafe')
     bio = data.get('bio', '')
 
+    # Grab whichever security questions were provided (we expect 3)
     sq_teacher = data.get('sq_teacher', '').strip().lower()
     sq_dog = data.get('sq_dog', '').strip().lower()
     sq_food = data.get('sq_food', '').strip().lower()
@@ -386,6 +387,90 @@ def register():
         return jsonify({"status": "error", "message": "Email already exists."}), 400
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+@app.route('/recover_account', methods=['POST'])
+def recover_account():
+    data = request.get_json(force=True, silent=True) or {}
+    recovery_type = data.get('type')
+    
+    # We validate whatever questions were sent by the client
+    ans_teacher = data.get('sq_teacher')
+    ans_dog = data.get('sq_dog')
+    ans_food = data.get('sq_food')
+    ans_phone = data.get('sq_phone')
+    ans_date = data.get('sq_date')
+
+    conn = get_db_connection()
+    
+    if recovery_type == 'email':
+        nickname = data.get('nickname', '').strip()
+        
+        # Build dynamic query based on whichever questions are active
+        query = "SELECT email FROM users WHERE nickname = ?"
+        params = [nickname]
+        
+        if ans_teacher is not None:
+            query += " AND sq_teacher = ?"
+            params.append(ans_teacher.strip().lower())
+        if ans_dog is not None:
+            query += " AND sq_dog = ?"
+            params.append(ans_dog.strip().lower())
+        if ans_food is not None:
+            query += " AND sq_food = ?"
+            params.append(ans_food.strip().lower())
+        if ans_phone is not None:
+            query += " AND sq_phone = ?"
+            params.append(ans_phone.strip().lower())
+        if ans_date is not None:
+            query += " AND sq_date = ?"
+            params.append(ans_date.strip().lower())
+
+        user = conn.execute(query, params).fetchone()
+        conn.close()
+        
+        if user:
+            return jsonify({"status": "success", "message": f"Your email is: {user['email']}"}), 200
+        return jsonify({"status": "error", "message": "Answers do not match any records."}), 404
+
+    elif recovery_type == 'password':
+        email = data.get('email', '').strip().lower()
+        new_password = data.get('new_password', '').strip()
+        
+        query = "SELECT id FROM users WHERE email = ?"
+        params = [email]
+        
+        if ans_teacher is not None:
+            query += " AND sq_teacher = ?"
+            params.append(ans_teacher.strip().lower())
+        if ans_dog is not None:
+            query += " AND sq_dog = ?"
+            params.append(ans_dog.strip().lower())
+        if ans_food is not None:
+            query += " AND sq_food = ?"
+            params.append(ans_food.strip().lower())
+        if ans_phone is not None:
+            query += " AND sq_phone = ?"
+            params.append(ans_phone.strip().lower())
+        if ans_date is not None:
+            query += " AND sq_date = ?"
+            params.append(ans_date.strip().lower())
+
+        user = conn.execute(query, params).fetchone()
+        
+        if user:
+            hashed_pw = generate_password_hash(new_password)
+            conn.execute('UPDATE users SET password = ? WHERE id = ?', (hashed_pw, user['id']))
+            conn.commit()
+            conn.close()
+            return jsonify({"status": "success", "message": "Password successfully reset! You can now log in."}), 200
+        
+        conn.close()
+        return jsonify({"status": "error", "message": "Answers do not match our records for that email."}), 404
+
+    return jsonify({"status": "error", "message": "Invalid request type"}), 400
     finally:
         if conn:
             conn.close()
