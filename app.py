@@ -11,7 +11,7 @@ from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
-
+import requests
 app = Flask(__name__)
 CORS(app)
 
@@ -234,21 +234,39 @@ def request_otp():
         return jsonify({"status": "error", "message": f"Database error: {str(e)}"}), 500
     conn.close()
 
-    # --- ATTEMPT EMAIL, FALLBACK TO RENDER LOGS IF BLOCKED ---
-    try:
-        msg = MIMEText(f"Your Let's Have Coffee login code is: {code}\n\nIt expires in 5 minutes. ☕")
-        msg['Subject'] = 'Your LHC Login Code'
-        msg['From'] = f"DriveElite Team <{SMTP_EMAIL}>"
-        msg['To'] = email
+    # --- BREVO API INTEGRATION (Bypasses Render SMTP Block) ---
+    BREVO_API_KEY = "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"  # key
+    SENDER_EMAIL = "contact@driveelite.ph"     # Must be a verified sender email in your Brevo account
 
-        with smtplib.SMTP_SSL('mail.driveelite.ph', 465, timeout=5) as smtp:
-            smtp.login(SMTP_EMAIL, SMTP_APP_PASSWORD)
-            smtp.send_message(msg)
+    try:
+        response = requests.post(
+            "https://api.brevo.com/v3/smtp/email",
+            headers={
+                "api-key": BREVO_API_KEY,
+                "Content-Type": "application/json"
+            },
+            json={
+                "sender": {"name": "Let's Have Coffee", "email": SENDER_EMAIL},
+                "to": [{"email": email}],
+                "subject": "Your LHC Login Code ☕",
+                "textContent": f"Your Let's Have Coffee login code is: {code}\n\nIt expires in 5 minutes. ☕"
+            },
+            timeout=10
+        )
+        
+        if response.status_code in [200, 201]:
+            return jsonify({"status": "success", "message": "OTP Sent to your Inbox!"}), 200
+        else:
+            # If Brevo rejects it (e.g. invalid key), print error and fallback to logs
+            print(f"⚠️ BREVO API ERROR: {response.text}")
+            print(f"📧 DEV MODE FALLBACK CODE FOR {email} IS: [{code}]")
+            return jsonify({"status": "success", "message": "OTP Sent (Fallback)!"}), 200
             
     except Exception as e:
-        print(f"⚠️ RENDER OUTBOUND PORT 465 BLOCKED: {str(e)}")
+        # If the network request fails entirely
+        print(f"⚠️ API REQUEST FAILED: {str(e)}")
         print(f"📧 DEV MODE FALLBACK CODE FOR {email} IS: [{code}]")
-        return jsonify({"status": "success", "message": "OTP Sent!"}), 200
+        return jsonify({"status": "success", "message": "OTP Sent (Fallback)!"}), 200
 
     return jsonify({"status": "success", "message": "OTP Sent!"}), 200
 
