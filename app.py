@@ -220,20 +220,21 @@ def request_otp():
     except Exception as e:
         conn.close()
         return jsonify({"status": "error", "message": f"Database error: {str(e)}"}), 500
-    conn.close()
+    finally:
+        conn.close()
 
     # Check Render Secret File location, environment variables, then local directory
-BREVO_API_KEY = os.environ.get("BREVO_API_KEY")
-if not BREVO_API_KEY:
-    render_secret_path = "/etc/secrets/brevo_key.txt"
-    local_secret_path = "brevo_key.txt"
-    
-    target_path = render_secret_path if os.path.exists(render_secret_path) else local_secret_path
-    try:
-        with open(target_path, "r") as key_file:
-            BREVO_API_KEY = key_file.read().strip()
-    except FileNotFoundError:
-        print("[Notice] Secret file 'brevo_key.txt' not found. Falling back to logs.")
+    BREVO_API_KEY = os.environ.get("BREVO_API_KEY")
+    if not BREVO_API_KEY:
+        render_secret_path = "/etc/secrets/brevo_key.txt"
+        local_secret_path = "brevo_key.txt"
+        target_path = render_secret_path if os.path.exists(render_secret_path) else local_secret_path
+
+        try:
+            with open(target_path, "r") as key_file:
+                BREVO_API_KEY = key_file.read().strip()
+        except FileNotFoundError:
+            print("[Notice] Secret file 'brevo_key.txt' not found. Falling back to logs.")
 
     SENDER_EMAIL = "contact@driveelite.ph"
 
