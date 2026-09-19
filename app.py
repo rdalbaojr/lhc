@@ -204,7 +204,7 @@ setup_database()
 def ping():
     return jsonify({"status": "success", "message": "Coffee Sparks server is awake!"})
 
-# Configure this with your real Gmail later (requires a Gmail App Password)
+# Configure with your real DriveElite credentials
 SMTP_EMAIL = "contact@driveelite.ph" 
 SMTP_APP_PASSWORD = "chcskxti6hc2d7ao"
 
@@ -217,7 +217,7 @@ def request_otp():
 
     code = str(random.randint(100000, 999999))
     
-    # FIXED: Format datetime as a strict string so SQLite accepts it safely
+    # Format datetime as a strict string so SQLite accepts it safely
     expires_at_str = (datetime.utcnow() + timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S")
 
     conn = get_db_connection()
@@ -246,12 +246,11 @@ def request_otp():
             
     except Exception as e:
         print(f"Error details: {str(e)}")
-        # FIXED: Return the actual SMTP error so your Flutter app can show it
+        # Return the actual SMTP error so your Flutter app can show it
         return jsonify({"status": "error", "message": f"Email server error: {str(e)}"}), 500
 
     return jsonify({"status": "success", "message": "OTP Sent!"}), 200
 
-
 @app.route('/verify_otp', methods=['POST'])
 def verify_otp():
     data = request.get_json(force=True, silent=True) or {}
@@ -265,56 +264,8 @@ def verify_otp():
         conn.close()
         return jsonify({"status": "error", "message": "Invalid code. Try again."}), 400
 
-    # FIXED: Parse the strict string format back into a datetime object
+    # Parse the strict string format back into a datetime object
     expires_at = datetime.strptime(otp_record['expires_at'], "%Y-%m-%d %H:%M:%S")
-    if expires_at < datetime.utcnow():
-        conn.close()
-        return jsonify({"status": "error", "message": "Code expired. Request a new one."}), 400
-
-    conn.execute('DELETE FROM otp_codes WHERE email = ?', (email,))
-    user = conn.execute('SELECT id FROM users WHERE email = ?', (email,)).fetchone()
-    conn.commit()
-    conn.close()
-
-    if user:
-        return jsonify({"status": "success", "is_new_user": False, "user_id": user['id']}), 200
-    else:
-        return jsonify({"status": "success", "is_new_user": True}), 200
-    conn.close()
-
-    # --- EMAIL SENDING LOGIC ---
-    try:
-        msg = MIMEText(f"Your Let's Have Coffee login code is: {code}\n\nIt expires in 5 minutes. ☕")
-        msg['Subject'] = 'Your LHC Login Code'
-        msg['From'] = f"Let's Have Coffee <{SMTP_EMAIL}>"
-        msg['To'] = email
-
-        # Using SMTP_SSL based on your DriveElite configuration
-        with smtplib.SMTP_SSL('mail.driveelite.ph', 465) as server:
-            server.login(SMTP_EMAIL, SMTP_APP_PASSWORD)
-            server.send_message(msg)
-            
-    except Exception as e:
-        # DEV MODE: If email fails, print it to the console so you can still test it!
-        print(f"📧 DEV MODE: Email failed to send. The code for {email} is: {code}")
-        print(f"Error details: {str(e)}")
-
-    return jsonify({"status": "success", "message": "OTP Sent!"}), 200
-
-@app.route('/verify_otp', methods=['POST'])
-def verify_otp():
-    data = request.get_json(force=True, silent=True) or {}
-    email = data.get('email', '').strip().lower()
-    code = data.get('code', '').strip()
-
-    conn = get_db_connection()
-    otp_record = conn.execute('SELECT * FROM otp_codes WHERE email = ? AND code = ?', (email, code)).fetchone()
-
-    if not otp_record:
-        conn.close()
-        return jsonify({"status": "error", "message": "Invalid code. Try again."}), 400
-
-    expires_at = datetime.strptime(otp_record['expires_at'], "%Y-%m-%d %H:%M:%S.%f")
     if expires_at < datetime.utcnow():
         conn.close()
         return jsonify({"status": "error", "message": "Code expired. Request a new one."}), 400
@@ -352,7 +303,6 @@ def login():
     else:
         conn.close()
         return jsonify({"status": "error", "message": "Invalid email or password"}), 401
-
 
 @app.route('/register', methods=['POST'])
 def register():
