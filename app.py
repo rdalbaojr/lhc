@@ -205,8 +205,8 @@ def ping():
     return jsonify({"status": "success", "message": "Coffee Sparks server is awake!"})
 
 # Configure this with your real Gmail later (requires a Gmail App Password)
-SMTP_EMAIL = "your_email@gmail.com" 
-SMTP_APP_PASSWORD = "your_app_password"
+SMTP_EMAIL = "contact@driveelite.ph" 
+SMTP_APP_PASSWORD = "chcskxti6hc2d7ao"
 
 @app.route('/request_otp', methods=['POST'])
 def request_otp():
@@ -231,19 +231,22 @@ def request_otp():
         return jsonify({"status": "error", "message": f"Database error: {str(e)}"}), 500
     conn.close()
 
+    # --- EMAIL SENDING LOGIC ---
     try:
         msg = MIMEText(f"Your Let's Have Coffee login code is: {code}\n\nIt expires in 5 minutes. ☕")
         msg['Subject'] = 'Your LHC Login Code'
-        msg['From'] = SMTP_EMAIL
+        msg['From'] = f"Let's Have Coffee <{SMTP_EMAIL}>"
         msg['To'] = email
 
-        server = smtplib.SMTP("smtp.gmail.com", 587)
-        server.starttls()
-        server.login(SMTP_EMAIL, SMTP_APP_PASSWORD)
-        server.send_message(msg)
-        server.quit()
+        # Using SMTP_SSL based on your DriveElite configuration
+        with smtplib.SMTP_SSL('mail.driveelite.ph', 465) as server:
+            server.login(SMTP_EMAIL, SMTP_APP_PASSWORD)
+            server.send_message(msg)
+            
     except Exception as e:
+        # DEV MODE: If email fails, print it to the console so you can still test it!
         print(f"📧 DEV MODE: Email failed to send. The code for {email} is: {code}")
+        print(f"Error details: {str(e)}")
 
     return jsonify({"status": "success", "message": "OTP Sent!"}), 200
 
