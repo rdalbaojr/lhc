@@ -245,9 +245,18 @@ def register():
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute('''
-            INSERT INTO users (email, password, real_name, nickname, age, gender, coffee_shop, bio, profile_image)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (email, hashed_password, real_name, nickname, age, gender, coffee_shop, bio, avatar_filename))
+            I# Inside your /register route, update the extraction and INSERT:
+    sq_teacher = data.get('sq_teacher', '').strip().lower()
+    sq_dog = data.get('sq_dog', '').strip().lower()
+    sq_food = data.get('sq_food', '').strip().lower()
+    sq_phone = data.get('sq_phone', '').strip().lower()
+    sq_date = data.get('sq_date', '').strip().lower()
+
+    # Update the cursor.execute to insert them:
+    cursor.execute('''
+        INSERT INTO users (email, password, real_name, nickname, age, gender, coffee_shop, bio, profile_image, sq_teacher, sq_dog, sq_food, sq_phone, sq_date)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (email, hashed_password, real_name, nickname, age, gender, coffee_shop, bio, avatar_filename, sq_teacher, sq_dog, sq_food, sq_phone, sq_date))
         conn.commit()
         new_user_id = cursor.lastrowid
         return jsonify({"status": "success", "message": "Profile registered!", "user_id": new_user_id}), 201
