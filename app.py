@@ -4,14 +4,14 @@ import random
 import sqlite3
 import time
 import math
+import smtplib
+from datetime import datetime, timedelta
+from email.mime.text import MIMEText
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
-import smtplib
-from email.mime.text import MIMEText
-from datetime import datetime, timedelta
-import random
+
 app = Flask(__name__)
 CORS(app)
 
@@ -33,7 +33,6 @@ def haversine_distance(lat1, lon1, lat2, lon2):
         math.cos(math.radians(lat2)) * math.sin(d_lon / 2)**2
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return R * c
-
 
 def setup_database():
     conn = get_db_connection()
@@ -70,7 +69,8 @@ def setup_database():
             cursor.execute(f'ALTER TABLE users ADD COLUMN {col} {col_type}')
         except sqlite3.OperationalError:
             pass
-# Add Security Questions to Users Table
+
+    # Add Security Questions to Users Table
     sq_cols = [
         ('sq_teacher', 'TEXT'),
         ('sq_dog', 'TEXT'),
@@ -83,6 +83,7 @@ def setup_database():
             cursor.execute(f'ALTER TABLE users ADD COLUMN {col} {col_type}')
         except sqlite3.OperationalError:
             pass
+
     # 2. User Photos Table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS user_photos (
@@ -144,7 +145,7 @@ def setup_database():
         )
     ''')
 
-    # 6. Messages Table (ADDED)
+    # 6. Messages Table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -157,8 +158,7 @@ def setup_database():
         )
     ''')
 
-    # 7. Secret Access Permissions Table (ADDED)
-    # Granular Item-Level Access Permissions Table
+    # 7. Secret Access Permissions Table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS secret_access (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -168,6 +168,7 @@ def setup_database():
             UNIQUE(owner_id, viewer_id, moment_id)
         )
     ''')
+
     # Profile Wall Comments Table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS profile_comments (
@@ -182,6 +183,7 @@ def setup_database():
             FOREIGN KEY(commenter_user_id) REFERENCES users(id)
         )
     ''')
+
     # 8. OTP Verification Table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS otp_codes (
@@ -191,16 +193,17 @@ def setup_database():
             expires_at DATETIME NOT NULL
         )
     ''')
+    
     conn.commit()
     conn.close()
 
 # Run table setup globally on startup
 setup_database()
 
-
 @app.route('/ping', methods=['GET'])
 def ping():
     return jsonify({"status": "success", "message": "Coffee Sparks server is awake!"})
+
 # Configure this with your real Gmail later (requires a Gmail App Password)
 SMTP_EMAIL = "your_email@gmail.com" 
 SMTP_APP_PASSWORD = "your_app_password"
@@ -217,7 +220,6 @@ def request_otp():
 
     conn = get_db_connection()
     try:
-        # Delete any old codes for this email, then insert the new one
         conn.execute('DELETE FROM otp_codes WHERE email = ?', (email,))
         conn.execute('''
             INSERT INTO otp_codes (email, code, expires_at)
@@ -229,7 +231,6 @@ def request_otp():
         return jsonify({"status": "error", "message": f"Database error: {str(e)}"}), 500
     conn.close()
 
-    # --- EMAIL SENDING LOGIC ---
     try:
         msg = MIMEText(f"Your Let's Have Coffee login code is: {code}\n\nIt expires in 5 minutes. ☕")
         msg['Subject'] = 'Your LHC Login Code'
@@ -242,11 +243,9 @@ def request_otp():
         server.send_message(msg)
         server.quit()
     except Exception as e:
-        # DEV MODE: If email fails, print it to the console so you can still test it!
         print(f"📧 DEV MODE: Email failed to send. The code for {email} is: {code}")
 
     return jsonify({"status": "success", "message": "OTP Sent!"}), 200
-
 
 @app.route('/verify_otp', methods=['POST'])
 def verify_otp():
@@ -261,16 +260,12 @@ def verify_otp():
         conn.close()
         return jsonify({"status": "error", "message": "Invalid code. Try again."}), 400
 
-    # Parse expiration time
     expires_at = datetime.strptime(otp_record['expires_at'], "%Y-%m-%d %H:%M:%S.%f")
     if expires_at < datetime.utcnow():
         conn.close()
         return jsonify({"status": "error", "message": "Code expired. Request a new one."}), 400
 
-    # Valid code! Delete it so it can't be reused.
     conn.execute('DELETE FROM otp_codes WHERE email = ?', (email,))
-
-    # Check if this email belongs to an existing user
     user = conn.execute('SELECT id FROM users WHERE email = ?', (email,)).fetchone()
     conn.commit()
     conn.close()
@@ -279,6 +274,7 @@ def verify_otp():
         return jsonify({"status": "success", "is_new_user": False, "user_id": user['id']}), 200
     else:
         return jsonify({"status": "success", "is_new_user": True}), 200
+
 @app.route('/login', methods=['POST'])
 def login():
     data = request.get_json(force=True, silent=True) or {}
@@ -316,6 +312,13 @@ def register():
     gender = data.get('gender', 'Man')
     coffee_shop = data.get('coffee_shop', 'Local Cafe')
     bio = data.get('bio', '')
+
+    # Security Questions extraction
+    sq_teacher = data.get('sq_teacher', '').strip().lower()
+    sq_dog = data.get('sq_dog', '').strip().lower()
+    sq_food = data.get('sq_food', '').strip().lower()
+    sq_phone = data.get('sq_phone', '').strip().lower()
+    sq_date = data.get('sq_date', '').strip().lower()
     
     avatar_filename = None
     image_b64 = data.get('image_base64')
@@ -334,18 +337,9 @@ def register():
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute('''
-            I# Inside your /register route, update the extraction and INSERT:
-    sq_teacher = data.get('sq_teacher', '').strip().lower()
-    sq_dog = data.get('sq_dog', '').strip().lower()
-    sq_food = data.get('sq_food', '').strip().lower()
-    sq_phone = data.get('sq_phone', '').strip().lower()
-    sq_date = data.get('sq_date', '').strip().lower()
-
-    # Update the cursor.execute to insert them:
-    cursor.execute('''
-        INSERT INTO users (email, password, real_name, nickname, age, gender, coffee_shop, bio, profile_image, sq_teacher, sq_dog, sq_food, sq_phone, sq_date)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (email, hashed_password, real_name, nickname, age, gender, coffee_shop, bio, avatar_filename, sq_teacher, sq_dog, sq_food, sq_phone, sq_date))
+            INSERT INTO users (email, password, real_name, nickname, age, gender, coffee_shop, bio, profile_image, sq_teacher, sq_dog, sq_food, sq_phone, sq_date)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (email, hashed_password, real_name, nickname, age, gender, coffee_shop, bio, avatar_filename, sq_teacher, sq_dog, sq_food, sq_phone, sq_date))
         conn.commit()
         new_user_id = cursor.lastrowid
         return jsonify({"status": "success", "message": "Profile registered!", "user_id": new_user_id}), 201
@@ -356,6 +350,52 @@ def register():
     finally:
         if conn:
             conn.close()
+
+@app.route('/recover_account', methods=['POST'])
+def recover_account():
+    data = request.get_json(force=True, silent=True) or {}
+    recovery_type = data.get('type')
+    
+    ans_teacher = data.get('sq_teacher', '').strip().lower()
+    ans_dog = data.get('sq_dog', '').strip().lower()
+    ans_food = data.get('sq_food', '').strip().lower()
+    ans_phone = data.get('sq_phone', '').strip().lower()
+    ans_date = data.get('sq_date', '').strip().lower()
+
+    conn = get_db_connection()
+    
+    if recovery_type == 'email':
+        nickname = data.get('nickname', '').strip()
+        user = conn.execute('''
+            SELECT email FROM users 
+            WHERE nickname = ? AND sq_teacher = ? AND sq_dog = ? AND sq_food = ? AND sq_phone = ? AND sq_date = ?
+        ''', (nickname, ans_teacher, ans_dog, ans_food, ans_phone, ans_date)).fetchone()
+        
+        conn.close()
+        if user:
+            return jsonify({"status": "success", "message": f"Your email is: {user['email']}"}), 200
+        return jsonify({"status": "error", "message": "Answers do not match any records."}), 404
+
+    elif recovery_type == 'password':
+        email = data.get('email', '').strip().lower()
+        new_password = data.get('new_password', '').strip()
+        
+        user = conn.execute('''
+            SELECT id FROM users 
+            WHERE email = ? AND sq_teacher = ? AND sq_dog = ? AND sq_food = ? AND sq_phone = ? AND sq_date = ?
+        ''', (email, ans_teacher, ans_dog, ans_food, ans_phone, ans_date)).fetchone()
+        
+        if user:
+            hashed_pw = generate_password_hash(new_password)
+            conn.execute('UPDATE users SET password = ? WHERE id = ?', (hashed_pw, user['id']))
+            conn.commit()
+            conn.close()
+            return jsonify({"status": "success", "message": "Password successfully reset! You can now log in."}), 200
+        
+        conn.close()
+        return jsonify({"status": "error", "message": "Answers do not match our records for that email."}), 404
+
+    return jsonify({"status": "error", "message": "Invalid request type"}), 400
 
 
 @app.route('/upload_private_moment', methods=['POST'])
@@ -400,7 +440,6 @@ def get_secret_moments(viewer_id, target_id):
         filename = r['image_base64'] or ''
         img_url = f"{request.host_url}uploads/{filename}" if filename else ""
         
-        # Check if this specific item is unlocked for the viewer
         unlocked = True
         if viewer_id != target_id:
             access = conn.execute('''
@@ -424,7 +463,7 @@ def grant_secret_access():
     data = request.get_json(force=True, silent=True) or {}
     owner_id = data.get('owner_id')
     viewer_id = data.get('viewer_id')
-    moment_id = data.get('moment_id') # <-- Added moment_id requirement
+    moment_id = data.get('moment_id')
 
     if not owner_id or not viewer_id or not moment_id:
         return jsonify({"status": "error", "message": "Missing IDs"}), 400
@@ -434,7 +473,7 @@ def grant_secret_access():
         conn.execute('''
             INSERT OR IGNORE INTO secret_access (owner_id, viewer_id, moment_id)
             VALUES (?, ?, ?)
-        ''', (owner_id, viewer_id, moment_id)) # <-- Inserting moment_id
+        ''', (owner_id, viewer_id, moment_id))
         conn.commit()
         return jsonify({"status": "success", "message": "Access granted!"}), 200
     except Exception as e:
@@ -466,54 +505,7 @@ def delete_private_moment(moment_id):
     conn.close()
     
     return jsonify({"status": "success", "message": "Secret moment deleted successfully!"}), 200
-@app.route('/recover_account', methods=['POST'])
-def recover_account():
-    data = request.get_json(force=True, silent=True) or {}
-    recovery_type = data.get('type') # 'email' or 'password'
-    
-    # User's provided security answers (lowercased for matching)
-    ans_teacher = data.get('sq_teacher', '').strip().lower()
-    ans_dog = data.get('sq_dog', '').strip().lower()
-    ans_food = data.get('sq_food', '').strip().lower()
-    ans_phone = data.get('sq_phone', '').strip().lower()
-    ans_date = data.get('sq_date', '').strip().lower()
 
-    conn = get_db_connection()
-    
-    if recovery_type == 'email':
-        nickname = data.get('nickname', '').strip()
-        user = conn.execute('''
-            SELECT email FROM users 
-            WHERE nickname = ? AND sq_teacher = ? AND sq_dog = ? AND sq_food = ? AND sq_phone = ? AND sq_date = ?
-        ''', (nickname, ans_teacher, ans_dog, ans_food, ans_phone, ans_date)).fetchone()
-        
-        conn.close()
-        if user:
-            return jsonify({"status": "success", "message": f"Your email is: {user['email']}"}), 200
-        return jsonify({"status": "error", "message": "Answers do not match any records."}), 404
-
-    elif recovery_type == 'password':
-        email = data.get('email', '').strip().lower()
-        new_password = data.get('new_password', '').strip()
-        
-        user = conn.execute('''
-            SELECT id FROM users 
-            WHERE email = ? AND sq_teacher = ? AND sq_dog = ? AND sq_food = ? AND sq_phone = ? AND sq_date = ?
-        ''', (email, ans_teacher, ans_dog, ans_food, ans_phone, ans_date)).fetchone()
-        
-        if user:
-            hashed_pw = generate_password_hash(new_password)
-            conn.execute('UPDATE users SET password = ? WHERE id = ?', (hashed_pw, user['id']))
-            conn.commit()
-            conn.close()
-            return jsonify({"status": "success", "message": "Password successfully reset! You can now log in."}), 200
-        
-        conn.close()
-        return jsonify({"status": "error", "message": "Answers do not match our records for that email."}), 404
-
-    return jsonify({"status": "error", "message": "Invalid request type"}), 400
-
-# --- CHAT / MESSAGING ROUTES (ADDED) ---
 
 @app.route('/get_messages/<int:user1_id>/<int:user2_id>', methods=['GET'])
 def get_messages(user1_id, user2_id):
@@ -559,6 +551,8 @@ def send_message():
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         conn.close()
+
+
 @app.route('/post_comment', methods=['POST'])
 def post_comment():
     data = request.get_json(force=True, silent=True) or {}
@@ -571,7 +565,6 @@ def post_comment():
     if not profile_id or not commenter_id or not text:
         return jsonify({"status": "error", "message": "Missing fields"}), 400
 
-    # Basic Positive Filter: Block harsh or negative words on public wall
     lower_text = text.lower()
     negative_words = ['ugly', 'hate', 'bad', 'horrible', 'stupid', 'loser', 'trash', 'scam']
     if any(word in lower_text for word in negative_words):
@@ -615,6 +608,7 @@ def get_comments(profile_user_id):
             "timestamp": r['timestamp']
         })
     return jsonify({"status": "success", "comments": comments}), 200
+
 @app.route('/feed', methods=['GET'])
 def get_feed():
     current_user_id = request.args.get('user_id', default=1, type=int)
@@ -657,11 +651,9 @@ def get_feed():
     feed_list.sort(key=lambda x: x['distance_km'])
     return jsonify({"status": "success", "feed": feed_list}), 200
 
-
 @app.route('/uploads/<filename>')
 def serve_file(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
-
 
 @app.route('/user_profile/<int:user_id>', methods=['GET'])
 def get_user_profile(user_id):
@@ -723,7 +715,6 @@ def update_avatar():
     conn.close()
 
     return jsonify({"status": "success", "avatar_url": f"{request.host_url}uploads/{filename}"}), 200
-
 
 @app.route('/user_stats/<int:user_id>', methods=['GET'])
 def get_user_stats(user_id):
