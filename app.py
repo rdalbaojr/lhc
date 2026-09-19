@@ -204,11 +204,10 @@ setup_database()
 def ping():
     return jsonify({"status": "success", "message": "Coffee Sparks server is awake!"})
 
-# Zoho Mail SMTP Configuration for driveelite.ph
+# Zoho Mail SMTP Configuration for driveelite.ph[cite: 1]
 SMTP_EMAIL = "contact@driveelite.ph" 
-SMTP_APP_PASSWORD = "chcskxti6hc2d7ao" # Keep your app-specific password
+SMTP_APP_PASSWORD = "chcskxti6hc2d7ao"
 
-# Change the request_otp function's smtp connection block to use Zoho:
 @app.route('/request_otp', methods=['POST'])
 def request_otp():
     data = request.get_json(force=True, silent=True) or {}
@@ -239,27 +238,8 @@ def request_otp():
         msg['From'] = f"Let's Have Coffee <{SMTP_EMAIL}>"
         msg['To'] = email
 
-        # Zoho uses smtppro.zoho.com for domain-based business emails on port 465 (SSL)
+        # Connect to Zoho Mail SSL server
         with smtplib.SMTP_SSL('smtppro.zoho.com', 465, timeout=10) as server:
-            server.login(SMTP_EMAIL, SMTP_APP_PASSWORD)
-            server.send_message(msg)
-            
-    except Exception as e:
-        print(f"Error details: {str(e)}")
-        return jsonify({"status": "error", "message": f"Zoho email error: {str(e)}"}), 500
-
-    return jsonify({"status": "success", "message": "OTP Sent!"}), 200
-    conn.close()
-
-    # --- EMAIL SENDING LOGIC ---
-    try:
-        msg = MIMEText(f"Your Let's Have Coffee login code is: {code}\n\nIt expires in 5 minutes. ☕")
-        msg['Subject'] = 'Your LHC Login Code'
-        msg['From'] = f"Let's Have Coffee <{SMTP_EMAIL}>"
-        msg['To'] = email
-
-        # FIXED: Added 'timeout=10' so the worker doesn't freeze and crash!
-        with smtplib.SMTP_SSL('mail.driveelite.ph', 465, timeout=10) as server:
             server.login(SMTP_EMAIL, SMTP_APP_PASSWORD)
             server.send_message(msg)
             
@@ -282,7 +262,6 @@ def verify_otp():
         conn.close()
         return jsonify({"status": "error", "message": "Invalid code. Try again."}), 400
 
-    # Parse the strict string format back into a datetime object
     expires_at = datetime.strptime(otp_record['expires_at'], "%Y-%m-%d %H:%M:%S")
     if expires_at < datetime.utcnow():
         conn.close()
@@ -335,7 +314,6 @@ def register():
     coffee_shop = data.get('coffee_shop', 'Local Cafe')
     bio = data.get('bio', '')
 
-    # Security Questions extraction
     sq_teacher = data.get('sq_teacher', '').strip().lower()
     sq_dog = data.get('sq_dog', '').strip().lower()
     sq_food = data.get('sq_food', '').strip().lower()
