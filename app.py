@@ -240,14 +240,14 @@ def request_otp():
         msg['From'] = f"Let's Have Coffee <{SMTP_EMAIL}>"
         msg['To'] = email
 
-        with smtplib.SMTP_SSL('mail.driveelite.ph', 465) as server:
+        # FIXED: Added 'timeout=10' so the worker doesn't freeze and crash!
+        with smtplib.SMTP_SSL('mail.driveelite.ph', 465, timeout=10) as server:
             server.login(SMTP_EMAIL, SMTP_APP_PASSWORD)
             server.send_message(msg)
             
     except Exception as e:
         print(f"Error details: {str(e)}")
-        # Return the actual SMTP error so your Flutter app can show it
-        return jsonify({"status": "error", "message": f"Email server error: {str(e)}"}), 500
+        return jsonify({"status": "error", "message": f"Email error: {str(e)}"}), 500
 
     return jsonify({"status": "success", "message": "OTP Sent!"}), 200
 
