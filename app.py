@@ -205,6 +205,7 @@ def ping():
     return jsonify({"status": "success", "message": "Coffee Sparks server is awake!"})
 
 # Zoho Mail SMTP Configuration for driveelite.ph[cite: 1]
+# --- DRIVEELITE MAIL CONFIGURATION ---
 SMTP_EMAIL = "contact@driveelite.ph" 
 SMTP_APP_PASSWORD = "chcskxti6hc2d7ao"
 
@@ -230,6 +231,24 @@ def request_otp():
         conn.close()
         return jsonify({"status": "error", "message": f"Database error: {str(e)}"}), 500
     conn.close()
+
+    # --- MATCHING join_driveelite.py EMAIL LOGIC ---
+    try:
+        msg = MIMEText(f"Your Let's Have Coffee login code is: {code}\n\nIt expires in 5 minutes. ☕")
+        msg['Subject'] = 'Your LHC Login Code'
+        msg['From'] = f"DriveElite Team <{SMTP_EMAIL}>"
+        msg['To'] = email
+
+        # Using the exact same server and port found in your working script
+        with smtplib.SMTP_SSL('mail.driveelite.ph', 465) as smtp:
+            smtp.login(SMTP_EMAIL, SMTP_APP_PASSWORD)
+            smtp.send_message(msg)
+            
+    except Exception as e:
+        print(f"Error details: {str(e)}")
+        return jsonify({"status": "error", "message": f"Email error: {str(e)}"}), 500
+
+    return jsonify({"status": "success", "message": "OTP Sent!"}), 200
 
     # --- ZOHO EMAIL SENDING LOGIC ---
     try:
