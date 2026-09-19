@@ -37,7 +37,8 @@ def haversine_distance(lat1, lon1, lat2, lon2):
 def setup_database():
     conn = get_db_connection()
     cursor = conn.cursor()
-    # KYC Status Column
+    
+    # KYC Status & Image Columns
     try:
         cursor.execute("ALTER TABLE users ADD COLUMN kyc_status TEXT DEFAULT 'Unverified'")
     except sqlite3.OperationalError:
@@ -47,6 +48,7 @@ def setup_database():
         cursor.execute("ALTER TABLE users ADD COLUMN kyc_image TEXT")
     except sqlite3.OperationalError:
         pass
+
     # 1. Users Table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
@@ -105,10 +107,6 @@ def setup_database():
             FOREIGN KEY(user_id) REFERENCES users(id)
         )
     ''')
-    try:
-        cursor.execute('ALTER TABLE user_photos ADD COLUMN is_private INTEGER DEFAULT 1')
-    except sqlite3.OperationalError:
-        pass
 
     # 3. User Likes Table
     cursor.execute('''
@@ -138,10 +136,6 @@ def setup_database():
             FOREIGN KEY(to_user_id) REFERENCES users(id)
         )
     ''')
-    try:
-        cursor.execute('ALTER TABLE date_invites ADD COLUMN message TEXT')
-    except sqlite3.OperationalError:
-        pass
 
     # 5. Private Moments (Secret Brews) Table
     cursor.execute('''
@@ -213,7 +207,6 @@ setup_database()
 def ping():
     return jsonify({"status": "success", "message": "Coffee Sparks server is awake!"})
 
-# Zoho Mail SMTP Configuration for driveelite.ph[cite: 1]
 # --- DRIVEELITE MAIL CONFIGURATION ---
 SMTP_EMAIL = "contact@driveelite.ph" 
 SMTP_APP_PASSWORD = "chcskxti6hc2d7ao"
@@ -255,45 +248,7 @@ def request_otp():
     except Exception as e:
         print(f"⚠️ RENDER OUTBOUND PORT 465 BLOCKED: {str(e)}")
         print(f"📧 DEV MODE FALLBACK CODE FOR {email} IS: [{code}]")
-        # Return success so your Flutter app moves to the OTP screen smoothly!
         return jsonify({"status": "success", "message": "OTP Sent!"}), 200
-
-    return jsonify({"status": "success", "message": "OTP Sent!"}), 200
-    conn.close()
-
-    # --- MATCHING join_driveelite.py EMAIL LOGIC ---
-    try:
-        msg = MIMEText(f"Your Let's Have Coffee login code is: {code}\n\nIt expires in 5 minutes. ☕")
-        msg['Subject'] = 'Your LHC Login Code'
-        msg['From'] = f"DriveElite Team <{SMTP_EMAIL}>"
-        msg['To'] = email
-
-        # Using the exact same server and port found in your working script
-        with smtplib.SMTP_SSL('mail.driveelite.ph', 465) as smtp:
-            smtp.login(SMTP_EMAIL, SMTP_APP_PASSWORD)
-            smtp.send_message(msg)
-            
-    except Exception as e:
-        print(f"Error details: {str(e)}")
-        return jsonify({"status": "error", "message": f"Email error: {str(e)}"}), 500
-
-    return jsonify({"status": "success", "message": "OTP Sent!"}), 200
-
-    # --- ZOHO EMAIL SENDING LOGIC ---
-    try:
-        msg = MIMEText(f"Your Let's Have Coffee login code is: {code}\n\nIt expires in 5 minutes. ☕")
-        msg['Subject'] = 'Your LHC Login Code'
-        msg['From'] = f"Let's Have Coffee <{SMTP_EMAIL}>"
-        msg['To'] = email
-
-        # Connect to Zoho Mail SSL server
-        with smtplib.SMTP_SSL('smtppro.zoho.com', 465, timeout=10) as server:
-            server.login(SMTP_EMAIL, SMTP_APP_PASSWORD)
-            server.send_message(msg)
-            
-    except Exception as e:
-        print(f"Error details: {str(e)}")
-        return jsonify({"status": "error", "message": f"Email error: {str(e)}"}), 500
 
     return jsonify({"status": "success", "message": "OTP Sent!"}), 200
 
@@ -362,7 +317,6 @@ def register():
     coffee_shop = data.get('coffee_shop', 'Local Cafe')
     bio = data.get('bio', '')
 
-    # Grab whichever security questions were provided (we expect 3)
     sq_teacher = data.get('sq_teacher', '').strip().lower()
     sq_dog = data.get('sq_dog', '').strip().lower()
     sq_food = data.get('sq_food', '').strip().lower()
@@ -399,6 +353,7 @@ def register():
     finally:
         if conn:
             conn.close()
+
 @app.route('/submit_kyc', methods=['POST'])
 def submit_kyc():
     data = request.get_json(force=True, silent=True) or {}
@@ -426,12 +381,12 @@ def submit_kyc():
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         conn.close()
+
 @app.route('/recover_account', methods=['POST'])
 def recover_account():
     data = request.get_json(force=True, silent=True) or {}
     recovery_type = data.get('type')
     
-    # We validate whatever questions were sent by the client
     ans_teacher = data.get('sq_teacher')
     ans_dog = data.get('sq_dog')
     ans_food = data.get('sq_food')
@@ -440,122 +395,71 @@ def recover_account():
 
     conn = get_db_connection()
     
-    if recovery_type == 'email':
-        nickname = data.get('nickname', '').strip()
-        
-        # Build dynamic query based on whichever questions are active
-        query = "SELECT email FROM users WHERE nickname = ?"
-        params = [nickname]
-        
-        if ans_teacher is not None:
-            query += " AND sq_teacher = ?"
-            params.append(ans_teacher.strip().lower())
-        if ans_dog is not None:
-            query += " AND sq_dog = ?"
-            params.append(ans_dog.strip().lower())
-        if ans_food is not None:
-            query += " AND sq_food = ?"
-            params.append(ans_food.strip().lower())
-        if ans_phone is not None:
-            query += " AND sq_phone = ?"
-            params.append(ans_phone.strip().lower())
-        if ans_date is not None:
-            query += " AND sq_date = ?"
-            params.append(ans_date.strip().lower())
+    try:
+        if recovery_type == 'email':
+            nickname = data.get('nickname', '').strip()
+            
+            query = "SELECT email FROM users WHERE nickname = ?"
+            params = [nickname]
+            
+            if ans_teacher is not None:
+                query += " AND sq_teacher = ?"
+                params.append(ans_teacher.strip().lower())
+            if ans_dog is not None:
+                query += " AND sq_dog = ?"
+                params.append(ans_dog.strip().lower())
+            if ans_food is not None:
+                query += " AND sq_food = ?"
+                params.append(ans_food.strip().lower())
+            if ans_phone is not None:
+                query += " AND sq_phone = ?"
+                params.append(ans_phone.strip().lower())
+            if ans_date is not None:
+                query += " AND sq_date = ?"
+                params.append(ans_date.strip().lower())
 
-        user = conn.execute(query, params).fetchone()
-        conn.close()
-        
-        if user:
-            return jsonify({"status": "success", "message": f"Your email is: {user['email']}"}), 200
-        return jsonify({"status": "error", "message": "Answers do not match any records."}), 404
+            user = conn.execute(query, params).fetchone()
+            
+            if user:
+                return jsonify({"status": "success", "message": f"Your email is: {user['email']}"}), 200
+            return jsonify({"status": "error", "message": "Answers do not match any records."}), 404
 
-    elif recovery_type == 'password':
-        email = data.get('email', '').strip().lower()
-        new_password = data.get('new_password', '').strip()
-        
-        query = "SELECT id FROM users WHERE email = ?"
-        params = [email]
-        
-        if ans_teacher is not None:
-            query += " AND sq_teacher = ?"
-            params.append(ans_teacher.strip().lower())
-        if ans_dog is not None:
-            query += " AND sq_dog = ?"
-            params.append(ans_dog.strip().lower())
-        if ans_food is not None:
-            query += " AND sq_food = ?"
-            params.append(ans_food.strip().lower())
-        if ans_phone is not None:
-            query += " AND sq_phone = ?"
-            params.append(ans_phone.strip().lower())
-        if ans_date is not None:
-            query += " AND sq_date = ?"
-            params.append(ans_date.strip().lower())
+        elif recovery_type == 'password':
+            email = data.get('email', '').strip().lower()
+            new_password = data.get('new_password', '').strip()
+            
+            query = "SELECT id FROM users WHERE email = ?"
+            params = [email]
+            
+            if ans_teacher is not None:
+                query += " AND sq_teacher = ?"
+                params.append(ans_teacher.strip().lower())
+            if ans_dog is not None:
+                query += " AND sq_dog = ?"
+                params.append(ans_dog.strip().lower())
+            if ans_food is not None:
+                query += " AND sq_food = ?"
+                params.append(ans_food.strip().lower())
+            if ans_phone is not None:
+                query += " AND sq_phone = ?"
+                params.append(ans_phone.strip().lower())
+            if ans_date is not None:
+                query += " AND sq_date = ?"
+                params.append(ans_date.strip().lower())
 
-        user = conn.execute(query, params).fetchone()
-        
-        if user:
-            hashed_pw = generate_password_hash(new_password)
-            conn.execute('UPDATE users SET password = ? WHERE id = ?', (hashed_pw, user['id']))
-            conn.commit()
-            conn.close()
-            return jsonify({"status": "success", "message": "Password successfully reset! You can now log in."}), 200
-        
-        conn.close()
-        return jsonify({"status": "error", "message": "Answers do not match our records for that email."}), 404
+            user = conn.execute(query, params).fetchone()
+            
+            if user:
+                hashed_pw = generate_password_hash(new_password)
+                conn.execute('UPDATE users SET password = ? WHERE id = ?', (hashed_pw, user['id']))
+                conn.commit()
+                return jsonify({"status": "success", "message": "Password successfully reset! You can now log in."}), 200
+            
+            return jsonify({"status": "error", "message": "Answers do not match our records for that email."}), 404
 
-    return jsonify({"status": "error", "message": "Invalid request type"}), 400
+        return jsonify({"status": "error", "message": "Invalid request type"}), 400
     finally:
-        if conn:
-            conn.close()
-
-@app.route('/recover_account', methods=['POST'])
-def recover_account():
-    data = request.get_json(force=True, silent=True) or {}
-    recovery_type = data.get('type')
-    
-    ans_teacher = data.get('sq_teacher', '').strip().lower()
-    ans_dog = data.get('sq_dog', '').strip().lower()
-    ans_food = data.get('sq_food', '').strip().lower()
-    ans_phone = data.get('sq_phone', '').strip().lower()
-    ans_date = data.get('sq_date', '').strip().lower()
-
-    conn = get_db_connection()
-    
-    if recovery_type == 'email':
-        nickname = data.get('nickname', '').strip()
-        user = conn.execute('''
-            SELECT email FROM users 
-            WHERE nickname = ? AND sq_teacher = ? AND sq_dog = ? AND sq_food = ? AND sq_phone = ? AND sq_date = ?
-        ''', (nickname, ans_teacher, ans_dog, ans_food, ans_phone, ans_date)).fetchone()
-        
         conn.close()
-        if user:
-            return jsonify({"status": "success", "message": f"Your email is: {user['email']}"}), 200
-        return jsonify({"status": "error", "message": "Answers do not match any records."}), 404
-
-    elif recovery_type == 'password':
-        email = data.get('email', '').strip().lower()
-        new_password = data.get('new_password', '').strip()
-        
-        user = conn.execute('''
-            SELECT id FROM users 
-            WHERE email = ? AND sq_teacher = ? AND sq_dog = ? AND sq_food = ? AND sq_phone = ? AND sq_date = ?
-        ''', (email, ans_teacher, ans_dog, ans_food, ans_phone, ans_date)).fetchone()
-        
-        if user:
-            hashed_pw = generate_password_hash(new_password)
-            conn.execute('UPDATE users SET password = ? WHERE id = ?', (hashed_pw, user['id']))
-            conn.commit()
-            conn.close()
-            return jsonify({"status": "success", "message": "Password successfully reset! You can now log in."}), 200
-        
-        conn.close()
-        return jsonify({"status": "error", "message": "Answers do not match our records for that email."}), 404
-
-    return jsonify({"status": "error", "message": "Invalid request type"}), 400
-
 
 @app.route('/upload_private_moment', methods=['POST'])
 def upload_private_moment():
@@ -586,7 +490,6 @@ def upload_private_moment():
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         conn.close()
-
 
 @app.route('/get_secret_moments/<int:viewer_id>/<int:target_id>', methods=['GET'])
 def get_secret_moments(viewer_id, target_id):
@@ -640,7 +543,6 @@ def grant_secret_access():
     finally:
         conn.close()
 
-
 @app.route('/delete_private_moment/<int:moment_id>', methods=['DELETE'])
 def delete_private_moment(moment_id):
     conn = get_db_connection()
@@ -665,7 +567,6 @@ def delete_private_moment(moment_id):
     
     return jsonify({"status": "success", "message": "Secret moment deleted successfully!"}), 200
 
-
 @app.route('/get_messages/<int:user1_id>/<int:user2_id>', methods=['GET'])
 def get_messages(user1_id, user2_id):
     conn = get_db_connection()
@@ -686,7 +587,6 @@ def get_messages(user1_id, user2_id):
             "timestamp": r['timestamp']
         })
     return jsonify({"status": "success", "messages": messages}), 200
-
 
 @app.route('/send_message', methods=['POST'])
 def send_message():
@@ -710,7 +610,6 @@ def send_message():
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         conn.close()
-
 
 @app.route('/post_comment', methods=['POST'])
 def post_comment():
@@ -829,7 +728,8 @@ def get_user_profile(user_id):
                 "age": 25,
                 "coffee_shop": "Local Cafe",
                 "bio": "Ready for coffee!",
-                "image": "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=800&q=80"
+                "image": "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=800&q=80",
+                "kyc_status": "Unverified"
             }
         }), 200
 
@@ -845,10 +745,10 @@ def get_user_profile(user_id):
             "coffee_shop": user["coffee_shop"],
             "bio": user["bio"],
             "image": img_url,
-            "caffeine_status": user["caffeine_status"] if "caffeine_status" in user.keys() else "Chilling"
+            "caffeine_status": user["caffeine_status"] if "caffeine_status" in user.keys() else "Chilling",
+            "kyc_status": user["kyc_status"] if "kyc_status" in user.keys() else "Unverified"
         }
     }), 200
-
 
 @app.route('/update_avatar', methods=['POST'])
 def update_avatar():
@@ -894,7 +794,6 @@ def get_user_stats(user_id):
 
     return jsonify({"status": "success", "match_brew": match_count, "similar_vibes": vibes_count, "local_likes": likes_count}), 200
 
-
 @app.route('/insight_details/<category>/<int:user_id>', methods=['GET'])
 def get_insight_details(category, user_id):
     conn = get_db_connection()
@@ -931,11 +830,11 @@ def get_insight_details(category, user_id):
         })
 
     return jsonify({"status": "success", "title": title, "users": users_list}), 200
+
 @app.route('/delete_user/<int:user_id>', methods=['DELETE'])
 def delete_user(user_id):
     conn = get_db_connection()
     try:
-        # Clean up related records to avoid foreign key constraints
         conn.execute('DELETE FROM user_likes WHERE from_user_id = ? OR to_user_id = ?', (user_id, user_id))
         conn.execute('DELETE FROM private_moments WHERE user_id = ?', (user_id,))
         conn.execute('DELETE FROM profile_comments WHERE profile_user_id = ? OR commenter_user_id = ?', (user_id, user_id))
