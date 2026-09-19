@@ -1,17 +1,19 @@
 import base64
+import math
 import os
 import random
+import smtplib
 import sqlite3
 import time
-import math
-import smtplib
-from datetime imporft datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
+
+import requests
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
+from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
-from werkzeug.security import generate_password_hash, check_password_hash
-import requests
+
 app = Flask(__name__)
 CORS(app)
 
@@ -19,35 +21,28 @@ UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
+
 def get_db_connection():
-    conn = sqlite3.connect('coffee_sparks.db')
+    conn = sqlite3.connect('coffee_sparks.db', check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
 
+
 def haversine_distance(lat1, lon1, lat2, lon2):
-    if None in (lat1, lon1, lat2, lon2): return 999
+    if None in (lat1, lon1, lat2, lon2):
+        return 999
     R = 6371.0
     d_lat = math.radians(lat2 - lat1)
     d_lon = math.radians(lon2 - lon1)
-    a = math.sin(d_lat / 2)**2 + math.cos(math.radians(lat1)) * \
-        math.cos(math.radians(lat2)) * math.sin(d_lon / 2)**2
+    a = math.sin(d_lat / 2) ** 2 + math.cos(math.radians(lat1)) * \
+        math.cos(math.radians(lat2)) * math.sin(d_lon / 2) ** 2
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return R * c
+
 
 def setup_database():
     conn = get_db_connection()
     cursor = conn.cursor()
-    
-    # KYC Status & Image Columns
-    try:
-        cursor.execute("ALTER TABLE users ADD COLUMN kyc_status TEXT DEFAULT 'Unverified'")
-    except sqlite3.OperationalError:
-        pass
-
-    try:
-        cursor.execute("ALTER TABLE users ADD COLUMN kyc_image TEXT")
-    except sqlite3.OperationalError:
-        pass
 
     # 1. Users Table
     cursor.execute('''
@@ -65,31 +60,26 @@ def setup_database():
             caffeine_status TEXT DEFAULT 'Craving an iced latte ☕',
             audio_intro TEXT,
             last_lat REAL,
-            last_lng REAL
+            last_lng REAL,
+            kyc_status TEXT DEFAULT 'Unverified',
+            kyc_image TEXT
         )
     ''')
-    
+
     migration_cols = [
-        ('caffeine_status', "TEXT DEFAULT 'Craving an iced latte ☕'"), 
+        ('caffeine_status', "TEXT DEFAULT 'Craving an iced latte ☕'"),
         ('audio_intro', 'TEXT'),
         ('last_lat', 'REAL'),
-        ('last_lng', 'REAL')
-    ]
-    for col, col_type in migration_cols:
-        try:
-            cursor.execute(f'ALTER TABLE users ADD COLUMN {col} {col_type}')
-        except sqlite3.OperationalError:
-            pass
-
-    # Add Security Questions to Users Table
-    sq_cols = [
+        ('last_lng', 'REAL'),
+        ('kyc_status', "TEXT DEFAULT 'Unverified'"),
+        ('kyc_image', 'TEXT'),
         ('sq_teacher', 'TEXT'),
         ('sq_dog', 'TEXT'),
         ('sq_food', 'TEXT'),
         ('sq_phone', 'TEXT'),
         ('sq_date', 'TEXT')
     ]
-    for col, col_type in sq_cols:
+    for col, col_type in migration_cols:
         try:
             cursor.execute(f'ALTER TABLE users ADD COLUMN {col} {col_type}')
         except sqlite3.OperationalError:
@@ -172,7 +162,7 @@ def setup_database():
         )
     ''')
 
-    # Profile Wall Comments Table
+    # 8. Profile Wall Comments Table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS profile_comments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -187,7 +177,7 @@ def setup_database():
         )
     ''')
 
-    # 8. OTP Verification Table
+    # 9. OTP Verification Table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS otp_codes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -196,20 +186,18 @@ def setup_database():
             expires_at DATETIME NOT NULL
         )
     ''')
-    
+
     conn.commit()
     conn.close()
 
-# Run table setup globally on startup
+
 setup_database()
+
 
 @app.route('/ping', methods=['GET'])
 def ping():
     return jsonify({"status": "success", "message": "Coffee Sparks server is awake!"})
 
-# --- DRIVEELITE MAIL CONFIGURATION ---
-SMTP_EMAIL = "contact@driveelite.ph" 
-SMTP_APP_PASSWORD = "chcskxti6hc2d7ao"
 
 @app.route('/request_otp', methods=['POST'])
 def request_otp():
@@ -219,7 +207,7 @@ def request_otp():
         return jsonify({"status": "error", "message": "Email required"}), 400
 
     code = str(random.randint(100000, 999999))
-    expires_at_str = (datetime.utcnow() + timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S")
+    expires_at_str = (datetime.now(timezone.utc) + timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S")
 
     conn = get_db_connection()
     try:
@@ -234,19 +222,18 @@ def request_otp():
         return jsonify({"status": "error", "message": f"Database error: {str(e)}"}), 500
     conn.close()
 
-    # --- BREVO API INTEGRATION (Bypasses Render SMTP Block) ---
+    # --- BREVO API INTEGRATION ---
     BREVO_API_KEY = None
     try:
-        # Safely reads the secret file generated by Render
         with open("brevo_key.txt", "r") as key_file:
             BREVO_API_KEY = key_file.read().strip()
     except FileNotFoundError:
-        print("⚠️ Secret file 'brevo_key.txt' not found. Falling back to logs.")
+        print("[Notice] 'brevo_key.txt' not found. Falling back to logs.")
 
-    SENDER_EMAIL = "contact@driveelite.ph"     
+    SENDER_EMAIL = "contact@driveelite.ph"
 
     if not BREVO_API_KEY:
-        print(f"📧 DEV MODE FALLBACK CODE FOR {email} IS: [{code}]")
+        print(f"[OTP LOG FALLBACK] Email: {email} | Code: {code}")
         return jsonify({"status": "success", "message": "OTP Sent (Fallback)!"}), 200
 
     try:
@@ -264,18 +251,19 @@ def request_otp():
             },
             timeout=10
         )
-        
+
         if response.status_code in [200, 201]:
             return jsonify({"status": "success", "message": "OTP Sent to your Inbox!"}), 200
         else:
-            print(f"⚠️ BREVO API ERROR: {response.text}")
-            print(f"📧 DEV MODE FALLBACK CODE FOR {email} IS: [{code}]")
+            print(f"Brevo API error: {response.text}")
+            print(f"[OTP LOG FALLBACK] Email: {email} | Code: {code}")
             return jsonify({"status": "success", "message": "OTP Sent (Fallback)!"}), 200
-            
+
     except Exception as e:
-        print(f"⚠️ API REQUEST FAILED: {str(e)}")
-        print(f"📧 DEV MODE FALLBACK CODE FOR {email} IS: [{code}]")
+        print(f"API request failed: {str(e)}")
+        print(f"[OTP LOG FALLBACK] Email: {email} | Code: {code}")
         return jsonify({"status": "success", "message": "OTP Sent (Fallback)!"}), 200
+
 
 @app.route('/verify_otp', methods=['POST'])
 def verify_otp():
@@ -291,7 +279,7 @@ def verify_otp():
         return jsonify({"status": "error", "message": "Invalid code. Try again."}), 400
 
     expires_at = datetime.strptime(otp_record['expires_at'], "%Y-%m-%d %H:%M:%S")
-    if expires_at < datetime.utcnow():
+    if expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
         conn.close()
         return jsonify({"status": "error", "message": "Code expired. Request a new one."}), 400
 
@@ -304,6 +292,7 @@ def verify_otp():
         return jsonify({"status": "success", "is_new_user": False, "user_id": user['id']}), 200
     else:
         return jsonify({"status": "success", "is_new_user": True}), 200
+
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -318,7 +307,7 @@ def login():
 
     conn = get_db_connection()
     user = conn.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
-    
+
     if user and check_password_hash(user['password'], password):
         if lat is not None and lng is not None:
             conn.execute('UPDATE users SET last_lat = ?, last_lng = ? WHERE id = ?', (lat, lng, user['id']))
@@ -328,6 +317,7 @@ def login():
     else:
         conn.close()
         return jsonify({"status": "error", "message": "Invalid email or password"}), 401
+
 
 @app.route('/register', methods=['POST'])
 def register():
@@ -347,7 +337,7 @@ def register():
     sq_food = data.get('sq_food', '').strip().lower()
     sq_phone = data.get('sq_phone', '').strip().lower()
     sq_date = data.get('sq_date', '').strip().lower()
-    
+
     avatar_filename = None
     image_b64 = data.get('image_base64')
     if image_b64:
@@ -379,6 +369,7 @@ def register():
         if conn:
             conn.close()
 
+
 @app.route('/submit_kyc', methods=['POST'])
 def submit_kyc():
     data = request.get_json(force=True, silent=True) or {}
@@ -407,11 +398,12 @@ def submit_kyc():
     finally:
         conn.close()
 
+
 @app.route('/recover_account', methods=['POST'])
 def recover_account():
     data = request.get_json(force=True, silent=True) or {}
     recovery_type = data.get('type')
-    
+
     ans_teacher = data.get('sq_teacher')
     ans_dog = data.get('sq_dog')
     ans_food = data.get('sq_food')
@@ -419,14 +411,14 @@ def recover_account():
     ans_date = data.get('sq_date')
 
     conn = get_db_connection()
-    
+
     try:
         if recovery_type == 'email':
             nickname = data.get('nickname', '').strip()
-            
+
             query = "SELECT email FROM users WHERE nickname = ?"
             params = [nickname]
-            
+
             if ans_teacher is not None:
                 query += " AND sq_teacher = ?"
                 params.append(ans_teacher.strip().lower())
@@ -444,7 +436,7 @@ def recover_account():
                 params.append(ans_date.strip().lower())
 
             user = conn.execute(query, params).fetchone()
-            
+
             if user:
                 return jsonify({"status": "success", "message": f"Your email is: {user['email']}"}), 200
             return jsonify({"status": "error", "message": "Answers do not match any records."}), 404
@@ -452,10 +444,10 @@ def recover_account():
         elif recovery_type == 'password':
             email = data.get('email', '').strip().lower()
             new_password = data.get('new_password', '').strip()
-            
+
             query = "SELECT id FROM users WHERE email = ?"
             params = [email]
-            
+
             if ans_teacher is not None:
                 query += " AND sq_teacher = ?"
                 params.append(ans_teacher.strip().lower())
@@ -473,18 +465,19 @@ def recover_account():
                 params.append(ans_date.strip().lower())
 
             user = conn.execute(query, params).fetchone()
-            
+
             if user:
                 hashed_pw = generate_password_hash(new_password)
                 conn.execute('UPDATE users SET password = ? WHERE id = ?', (hashed_pw, user['id']))
                 conn.commit()
                 return jsonify({"status": "success", "message": "Password successfully reset! You can now log in."}), 200
-            
+
             return jsonify({"status": "error", "message": "Answers do not match our records for that email."}), 404
 
         return jsonify({"status": "error", "message": "Invalid request type"}), 400
     finally:
         conn.close()
+
 
 @app.route('/upload_private_moment', methods=['POST'])
 def upload_private_moment():
@@ -492,13 +485,13 @@ def upload_private_moment():
     user_id = data.get('user_id')
     image_base64 = data.get('image_base64')
     caption = data.get('caption', '')
-    
+
     if not user_id or not image_base64:
         return jsonify({"status": "error", "message": "Missing user_id or image"}), 400
-        
+
     filename = secure_filename(f"moment_{user_id}_{int(time.time())}.jpg")
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    
+
     try:
         with open(filepath, "wb") as fh:
             fh.write(base64.b64decode(image_base64))
@@ -516,17 +509,18 @@ def upload_private_moment():
     finally:
         conn.close()
 
+
 @app.route('/get_secret_moments/<int:viewer_id>/<int:target_id>', methods=['GET'])
 def get_secret_moments(viewer_id, target_id):
     conn = get_db_connection()
     rows = conn.execute('SELECT id, image_base64, caption, timestamp FROM private_moments WHERE user_id = ? ORDER BY id DESC', (target_id,)).fetchall()
-    
+
     moments = []
     for r in rows:
         moment_id = r['id']
         filename = r['image_base64'] or ''
         img_url = f"{request.host_url}uploads/{filename}" if filename else ""
-        
+
         unlocked = True
         if viewer_id != target_id:
             access = conn.execute('''
@@ -541,9 +535,10 @@ def get_secret_moments(viewer_id, target_id):
             "unlocked": unlocked,
             "timestamp": r['timestamp']
         })
-        
+
     conn.close()
     return jsonify({"status": "success", "moments": moments}), 200
+
 
 @app.route('/grant_secret_access', methods=['POST'])
 def grant_secret_access():
@@ -568,15 +563,16 @@ def grant_secret_access():
     finally:
         conn.close()
 
+
 @app.route('/delete_private_moment/<int:moment_id>', methods=['DELETE'])
 def delete_private_moment(moment_id):
     conn = get_db_connection()
     row = conn.execute('SELECT image_base64 FROM private_moments WHERE id = ?', (moment_id,)).fetchone()
-    
+
     if not row:
         conn.close()
         return jsonify({"status": "error", "message": "Moment not found"}), 404
-        
+
     filename = row['image_base64']
     if filename:
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
@@ -585,12 +581,13 @@ def delete_private_moment(moment_id):
                 os.remove(filepath)
             except Exception as e:
                 print(f"Error deleting file: {e}")
-                
+
     conn.execute('DELETE FROM private_moments WHERE id = ?', (moment_id,))
     conn.commit()
     conn.close()
-    
+
     return jsonify({"status": "success", "message": "Secret moment deleted successfully!"}), 200
+
 
 @app.route('/get_messages/<int:user1_id>/<int:user2_id>', methods=['GET'])
 def get_messages(user1_id, user2_id):
@@ -612,6 +609,7 @@ def get_messages(user1_id, user2_id):
             "timestamp": r['timestamp']
         })
     return jsonify({"status": "success", "messages": messages}), 200
+
 
 @app.route('/send_message', methods=['POST'])
 def send_message():
@@ -636,6 +634,7 @@ def send_message():
     finally:
         conn.close()
 
+
 @app.route('/post_comment', methods=['POST'])
 def post_comment():
     data = request.get_json(force=True, silent=True) or {}
@@ -652,7 +651,7 @@ def post_comment():
     negative_words = ['ugly', 'hate', 'bad', 'horrible', 'stupid', 'loser', 'trash', 'scam']
     if any(word in lower_text for word in negative_words):
         return jsonify({
-            "status": "error", 
+            "status": "error",
             "message": "Public wall keeps good vibes only! Save the spicy banter for private chat rooms ☕"
         }), 400
 
@@ -668,6 +667,7 @@ def post_comment():
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         conn.close()
+
 
 @app.route('/get_comments/<int:profile_user_id>', methods=['GET'])
 def get_comments(profile_user_id):
@@ -692,6 +692,7 @@ def get_comments(profile_user_id):
         })
     return jsonify({"status": "success", "comments": comments}), 200
 
+
 @app.route('/feed', methods=['GET'])
 def get_feed():
     current_user_id = request.args.get('user_id', default=1, type=int)
@@ -702,7 +703,7 @@ def get_feed():
     if lat is not None and lng is not None:
         conn.execute('UPDATE users SET last_lat = ?, last_lng = ? WHERE id = ?', (lat, lng, current_user_id))
         conn.commit()
-    
+
     cursor = conn.cursor()
     potential_matches = cursor.execute('''
         SELECT id, nickname, age, gender, coffee_shop, bio, profile_image, caffeine_status, last_lat, last_lng
@@ -719,7 +720,7 @@ def get_feed():
         if distance <= MAX_DISTANCE_KM:
             avatar = u['profile_image']
             img_url = f"{request.host_url}uploads/{avatar}" if avatar else "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80"
-            
+
             feed_list.append({
                 "id": u["id"],
                 "name": u["nickname"] or "Anonymous",
@@ -730,13 +731,15 @@ def get_feed():
                 "tags": ["Coffee Lover", u["caffeine_status"] or "Local", u["coffee_shop"] or "Explorer"],
                 "distance_km": round(distance, 1)
             })
-            
+
     feed_list.sort(key=lambda x: x['distance_km'])
     return jsonify({"status": "success", "feed": feed_list}), 200
+
 
 @app.route('/uploads/<filename>')
 def serve_file(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
 
 @app.route('/user_profile/<int:user_id>', methods=['GET'])
 def get_user_profile(user_id):
@@ -775,18 +778,19 @@ def get_user_profile(user_id):
         }
     }), 200
 
+
 @app.route('/update_avatar', methods=['POST'])
 def update_avatar():
-    data = request.json or {}
+    data = request.get_json(force=True, silent=True) or {}
     user_id = data.get('user_id', 1)
     image_b64 = data.get('image_base64')
-    
+
     if not image_b64:
         return jsonify({"status": "error", "message": "No image uploaded"}), 400
 
     filename = secure_filename(f"avatar_{user_id}_{int(time.time())}.jpg")
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    
+
     try:
         with open(filepath, "wb") as fh:
             fh.write(base64.b64decode(image_b64))
@@ -800,6 +804,7 @@ def update_avatar():
 
     return jsonify({"status": "success", "avatar_url": f"{request.host_url}uploads/{filename}"}), 200
 
+
 @app.route('/user_stats/<int:user_id>', methods=['GET'])
 def get_user_stats(user_id):
     conn = get_db_connection()
@@ -810,24 +815,26 @@ def get_user_stats(user_id):
 
     vibes_count = cursor.execute('SELECT COUNT(*) as count FROM users WHERE LOWER(coffee_shop) = LOWER(?) AND id != ?', (current_shop, user_id)).fetchone()['count']
     likes_count = cursor.execute('SELECT COUNT(*) as count FROM user_likes WHERE to_user_id = ?', (user_id,)).fetchone()['count']
+
     match_count = cursor.execute('''
         SELECT COUNT(*) as count FROM user_likes a
-        JOIN user_likes b ON a.from_user_id = b.to_user_id AND a.to_user_id = b.from_user_id
+        JOIN user_likes b ON a.to_user_id = b.from_user_id AND a.from_user_id = b.to_user_id
         WHERE a.from_user_id = ?
     ''', (user_id,)).fetchone()['count']
     conn.close()
 
     return jsonify({"status": "success", "match_brew": match_count, "similar_vibes": vibes_count, "local_likes": likes_count}), 200
 
+
 @app.route('/insight_details/<category>/<int:user_id>', methods=['GET'])
 def get_insight_details(category, user_id):
     conn = get_db_connection()
     cursor = conn.cursor()
-    
+
     current_user = cursor.execute('SELECT coffee_shop FROM users WHERE id = ?', (user_id,)).fetchone()
     current_shop = current_user['coffee_shop'] if current_user else ""
     users_list = []
-    
+
     if category == 'similar_vibes':
         rows = cursor.execute('SELECT id, nickname, age, coffee_shop, bio, profile_image FROM users WHERE LOWER(coffee_shop) = LOWER(?) AND id != ?', (current_shop, user_id)).fetchall()
         title = f"Similar Coffee Vibes ({current_shop})"
@@ -835,7 +842,13 @@ def get_insight_details(category, user_id):
         rows = cursor.execute('SELECT u.id, u.nickname, u.age, u.coffee_shop, u.bio, u.profile_image FROM users u JOIN user_likes l ON u.id = l.from_user_id WHERE l.to_user_id = ?', (user_id,)).fetchall()
         title = "Local Coffee Likes"
     elif category == 'match_brew':
-        rows = cursor.execute('SELECT u.id, u.nickname, u.age, u.coffee_shop, u.bio, u.profile_image FROM users u JOIN user_likes a ON u.id = a.to_user_id JOIN user_likes b ON u.id = b.from_user_id WHERE a.from_user_id = ? AND b.to_user_id = ?', (user_id, user_id)).fetchall()
+        rows = cursor.execute('''
+            SELECT u.id, u.nickname, u.age, u.coffee_shop, u.bio, u.profile_image 
+            FROM users u 
+            JOIN user_likes a ON u.id = a.to_user_id 
+            JOIN user_likes b ON a.from_user_id = b.to_user_id AND a.to_user_id = b.from_user_id 
+            WHERE a.from_user_id = ?
+        ''', (user_id,)).fetchall()
         title = "Match Brew (Mutual Sparks)"
     else:
         conn.close()
@@ -856,6 +869,7 @@ def get_insight_details(category, user_id):
 
     return jsonify({"status": "success", "title": title, "users": users_list}), 200
 
+
 @app.route('/delete_user/<int:user_id>', methods=['DELETE'])
 def delete_user(user_id):
     conn = get_db_connection()
@@ -871,6 +885,7 @@ def delete_user(user_id):
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         conn.close()
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
