@@ -67,7 +67,19 @@ def setup_database():
             cursor.execute(f'ALTER TABLE users ADD COLUMN {col} {col_type}')
         except sqlite3.OperationalError:
             pass
-
+# Add Security Questions to Users Table
+    sq_cols = [
+        ('sq_teacher', 'TEXT'),
+        ('sq_dog', 'TEXT'),
+        ('sq_food', 'TEXT'),
+        ('sq_phone', 'TEXT'),
+        ('sq_date', 'TEXT')
+    ]
+    for col, col_type in sq_cols:
+        try:
+            cursor.execute(f'ALTER TABLE users ADD COLUMN {col} {col_type}')
+        except sqlite3.OperationalError:
+            pass
     # 2. User Photos Table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS user_photos (
