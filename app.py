@@ -204,10 +204,11 @@ setup_database()
 def ping():
     return jsonify({"status": "success", "message": "Coffee Sparks server is awake!"})
 
-# Configure with your real DriveElite credentials
+# Zoho Mail SMTP Configuration for driveelite.ph
 SMTP_EMAIL = "contact@driveelite.ph" 
-SMTP_APP_PASSWORD = "chcskxti6hc2d7ao"
+SMTP_APP_PASSWORD = "chcskxti6hc2d7ao" # Keep your app-specific password
 
+# Change the request_otp function's smtp connection block to use Zoho:
 @app.route('/request_otp', methods=['POST'])
 def request_otp():
     data = request.get_json(force=True, silent=True) or {}
@@ -216,8 +217,6 @@ def request_otp():
         return jsonify({"status": "error", "message": "Email required"}), 400
 
     code = str(random.randint(100000, 999999))
-    
-    # Format datetime as a strict string so SQLite accepts it safely
     expires_at_str = (datetime.utcnow() + timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S")
 
     conn = get_db_connection()
@@ -231,6 +230,25 @@ def request_otp():
     except Exception as e:
         conn.close()
         return jsonify({"status": "error", "message": f"Database error: {str(e)}"}), 500
+    conn.close()
+
+    # --- ZOHO EMAIL SENDING LOGIC ---
+    try:
+        msg = MIMEText(f"Your Let's Have Coffee login code is: {code}\n\nIt expires in 5 minutes. ☕")
+        msg['Subject'] = 'Your LHC Login Code'
+        msg['From'] = f"Let's Have Coffee <{SMTP_EMAIL}>"
+        msg['To'] = email
+
+        # Zoho uses smtppro.zoho.com for domain-based business emails on port 465 (SSL)
+        with smtplib.SMTP_SSL('smtppro.zoho.com', 465, timeout=10) as server:
+            server.login(SMTP_EMAIL, SMTP_APP_PASSWORD)
+            server.send_message(msg)
+            
+    except Exception as e:
+        print(f"Error details: {str(e)}")
+        return jsonify({"status": "error", "message": f"Zoho email error: {str(e)}"}), 500
+
+    return jsonify({"status": "success", "message": "OTP Sent!"}), 200
     conn.close()
 
     # --- EMAIL SENDING LOGIC ---
