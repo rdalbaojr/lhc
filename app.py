@@ -931,7 +931,22 @@ def get_insight_details(category, user_id):
         })
 
     return jsonify({"status": "success", "title": title, "users": users_list}), 200
-
+@app.route('/delete_user/<int:user_id>', methods=['DELETE'])
+def delete_user(user_id):
+    conn = get_db_connection()
+    try:
+        # Clean up related records to avoid foreign key constraints
+        conn.execute('DELETE FROM user_likes WHERE from_user_id = ? OR to_user_id = ?', (user_id, user_id))
+        conn.execute('DELETE FROM private_moments WHERE user_id = ?', (user_id,))
+        conn.execute('DELETE FROM profile_comments WHERE profile_user_id = ? OR commenter_user_id = ?', (user_id, user_id))
+        conn.execute('DELETE FROM messages WHERE from_user_id = ? OR to_user_id = ?', (user_id, user_id))
+        conn.execute('DELETE FROM users WHERE id = ?', (user_id,))
+        conn.commit()
+        return jsonify({"status": "success", "message": "Account deleted successfully!"}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        conn.close()
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
