@@ -8,7 +8,10 @@ from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
-
+import smtplib
+from email.mime.text import MIMEText
+from datetime import datetime, timedelta
+import random
 app = Flask(__name__)
 CORS(app)
 
@@ -179,6 +182,15 @@ def setup_database():
             FOREIGN KEY(commenter_user_id) REFERENCES users(id)
         )
     ''')
+    # 8. OTP Verification Table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS otp_codes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL,
+            code TEXT NOT NULL,
+            expires_at DATETIME NOT NULL
+        )
+    ''')
     conn.commit()
     conn.close()
 
@@ -189,7 +201,84 @@ setup_database()
 @app.route('/ping', methods=['GET'])
 def ping():
     return jsonify({"status": "success", "message": "Coffee Sparks server is awake!"})
+# Configure this with your real Gmail later (requires a Gmail App Password)
+SMTP_EMAIL = "your_email@gmail.com" 
+SMTP_APP_PASSWORD = "your_app_password"
 
+@app.route('/request_otp', methods=['POST'])
+def request_otp():
+    data = request.get_json(force=True, silent=True) or {}
+    email = data.get('email', '').strip().lower()
+    if not email:
+        return jsonify({"status": "error", "message": "Email required"}), 400
+
+    code = str(random.randint(100000, 999999))
+    expires_at = datetime.utcnow() + timedelta(minutes=5)
+
+    conn = get_db_connection()
+    try:
+        # Delete any old codes for this email, then insert the new one
+        conn.execute('DELETE FROM otp_codes WHERE email = ?', (email,))
+        conn.execute('''
+            INSERT INTO otp_codes (email, code, expires_at)
+            VALUES (?, ?, ?)
+        ''', (email, code, expires_at))
+        conn.commit()
+    except Exception as e:
+        conn.close()
+        return jsonify({"status": "error", "message": f"Database error: {str(e)}"}), 500
+    conn.close()
+
+    # --- EMAIL SENDING LOGIC ---
+    try:
+        msg = MIMEText(f"Your Let's Have Coffee login code is: {code}\n\nIt expires in 5 minutes. ☕")
+        msg['Subject'] = 'Your LHC Login Code'
+        msg['From'] = SMTP_EMAIL
+        msg['To'] = email
+
+        server = smtplib.SMTP("smtp.gmail.com", 587)
+        server.starttls()
+        server.login(SMTP_EMAIL, SMTP_APP_PASSWORD)
+        server.send_message(msg)
+        server.quit()
+    except Exception as e:
+        # DEV MODE: If email fails, print it to the console so you can still test it!
+        print(f"📧 DEV MODE: Email failed to send. The code for {email} is: {code}")
+
+    return jsonify({"status": "success", "message": "OTP Sent!"}), 200
+
+
+@app.route('/verify_otp', methods=['POST'])
+def verify_otp():
+    data = request.get_json(force=True, silent=True) or {}
+    email = data.get('email', '').strip().lower()
+    code = data.get('code', '').strip()
+
+    conn = get_db_connection()
+    otp_record = conn.execute('SELECT * FROM otp_codes WHERE email = ? AND code = ?', (email, code)).fetchone()
+
+    if not otp_record:
+        conn.close()
+        return jsonify({"status": "error", "message": "Invalid code. Try again."}), 400
+
+    # Parse expiration time
+    expires_at = datetime.strptime(otp_record['expires_at'], "%Y-%m-%d %H:%M:%S.%f")
+    if expires_at < datetime.utcnow():
+        conn.close()
+        return jsonify({"status": "error", "message": "Code expired. Request a new one."}), 400
+
+    # Valid code! Delete it so it can't be reused.
+    conn.execute('DELETE FROM otp_codes WHERE email = ?', (email,))
+
+    # Check if this email belongs to an existing user
+    user = conn.execute('SELECT id FROM users WHERE email = ?', (email,)).fetchone()
+    conn.commit()
+    conn.close()
+
+    if user:
+        return jsonify({"status": "success", "is_new_user": False, "user_id": user['id']}), 200
+    else:
+        return jsonify({"status": "success", "is_new_user": True}), 200
 @app.route('/login', methods=['POST'])
 def login():
     data = request.get_json(force=True, silent=True) or {}
