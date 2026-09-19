@@ -377,7 +377,52 @@ def delete_private_moment(moment_id):
     conn.close()
     
     return jsonify({"status": "success", "message": "Secret moment deleted successfully!"}), 200
+@app.route('/recover_account', methods=['POST'])
+def recover_account():
+    data = request.get_json(force=True, silent=True) or {}
+    recovery_type = data.get('type') # 'email' or 'password'
+    
+    # User's provided security answers (lowercased for matching)
+    ans_teacher = data.get('sq_teacher', '').strip().lower()
+    ans_dog = data.get('sq_dog', '').strip().lower()
+    ans_food = data.get('sq_food', '').strip().lower()
+    ans_phone = data.get('sq_phone', '').strip().lower()
+    ans_date = data.get('sq_date', '').strip().lower()
 
+    conn = get_db_connection()
+    
+    if recovery_type == 'email':
+        nickname = data.get('nickname', '').strip()
+        user = conn.execute('''
+            SELECT email FROM users 
+            WHERE nickname = ? AND sq_teacher = ? AND sq_dog = ? AND sq_food = ? AND sq_phone = ? AND sq_date = ?
+        ''', (nickname, ans_teacher, ans_dog, ans_food, ans_phone, ans_date)).fetchone()
+        
+        conn.close()
+        if user:
+            return jsonify({"status": "success", "message": f"Your email is: {user['email']}"}), 200
+        return jsonify({"status": "error", "message": "Answers do not match any records."}), 404
+
+    elif recovery_type == 'password':
+        email = data.get('email', '').strip().lower()
+        new_password = data.get('new_password', '').strip()
+        
+        user = conn.execute('''
+            SELECT id FROM users 
+            WHERE email = ? AND sq_teacher = ? AND sq_dog = ? AND sq_food = ? AND sq_phone = ? AND sq_date = ?
+        ''', (email, ans_teacher, ans_dog, ans_food, ans_phone, ans_date)).fetchone()
+        
+        if user:
+            hashed_pw = generate_password_hash(new_password)
+            conn.execute('UPDATE users SET password = ? WHERE id = ?', (hashed_pw, user['id']))
+            conn.commit()
+            conn.close()
+            return jsonify({"status": "success", "message": "Password successfully reset! You can now log in."}), 200
+        
+        conn.close()
+        return jsonify({"status": "error", "message": "Answers do not match our records for that email."}), 404
+
+    return jsonify({"status": "error", "message": "Invalid request type"}), 400
 
 # --- CHAT / MESSAGING ROUTES (ADDED) ---
 
