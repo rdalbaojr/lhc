@@ -37,7 +37,16 @@ def haversine_distance(lat1, lon1, lat2, lon2):
 def setup_database():
     conn = get_db_connection()
     cursor = conn.cursor()
-    
+    # KYC Status Column
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN kyc_status TEXT DEFAULT 'Unverified'")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN kyc_image TEXT")
+    except sqlite3.OperationalError:
+        pass
     # 1. Users Table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
@@ -390,7 +399,33 @@ def register():
     finally:
         if conn:
             conn.close()
+@app.route('/submit_kyc', methods=['POST'])
+def submit_kyc():
+    data = request.get_json(force=True, silent=True) or {}
+    user_id = data.get('user_id')
+    image_b64 = data.get('image_base64')
 
+    if not user_id or not image_b64:
+        return jsonify({"status": "error", "message": "Missing user ID or image"}), 400
+
+    filename = secure_filename(f"kyc_{user_id}_{int(time.time())}.jpg")
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+
+    try:
+        with open(filepath, "wb") as fh:
+            fh.write(base64.b64decode(image_b64))
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Error saving KYC photo: {e}"}), 500
+
+    conn = get_db_connection()
+    try:
+        conn.execute('UPDATE users SET kyc_status = ?, kyc_image = ? WHERE id = ?', ('Pending', filename, user_id))
+        conn.commit()
+        return jsonify({"status": "success", "message": "KYC submitted successfully! Pending review."}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        conn.close()
 @app.route('/recover_account', methods=['POST'])
 def recover_account():
     data = request.get_json(force=True, silent=True) or {}
