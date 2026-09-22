@@ -84,7 +84,10 @@ def setup_database():
             cursor.execute(f'ALTER TABLE users ADD COLUMN {col} {col_type}')
         except sqlite3.OperationalError:
             pass
-
+try:
+        cursor.execute("ALTER TABLE users ADD COLUMN is_premium INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
     # 2. User Photos Table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS user_photos (
