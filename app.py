@@ -299,39 +299,7 @@ def verify_otp():
     else:
         return jsonify({"status": "success", "is_new_user": True}), 200
 
-@app.route('/create_date_invite', methods=['POST'])
-def create_date_invite():
-    data = request.get_json(force=True, silent=True) or {}
-    from_user_id = data.get('from_user_id')
-    to_user_id = data.get('to_user_id')
-    cafe_name = data.get('cafe_name', 'Local Cafe')
-    meet_time = data.get('meet_time', 'Tomorrow morning')
-    message = data.get('message', '')
 
-    if not from_user_id or not to_user_id:
-        return jsonify({"status": "error", "message": "Missing sender or receiver IDs"}), 400
-
-    conn = get_db_connection()
-    try:
-        # 1. Insert the date invite into the database
-        conn.execute('''
-            INSERT INTO date_invites (from_user_id, to_user_id, cafe_name, meet_time, message, status)
-            VALUES (?, ?, ?, ?, ?, 'Pending')
-        ''', (from_user_id, to_user_id, cafe_name, meet_time, message))
-        
-        # 2. Automatically log this as a "Like" so it shows up in their stats
-        conn.execute('''
-            INSERT OR IGNORE INTO user_likes (from_user_id, to_user_id)
-            VALUES (?, ?)
-        ''', (from_user_id, to_user_id))
-        
-        conn.commit()
-        return jsonify({"status": "success", "message": "Spark sent successfully!"}), 201
-        
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-    finally:
-        conn.close()
 @app.route('/login', methods=['POST'])
 def login():
     data = request.get_json(force=True, silent=True) or {}
