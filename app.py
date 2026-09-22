@@ -848,6 +848,7 @@ def serve_file(filename):
 def get_user_profile(user_id):
     conn = get_db_connection()
     user = conn.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
+    "is_premium": bool(user["is_premium"]) if "is_premium" in user.keys() else False,
     conn.close()
 
     if not user:
@@ -988,7 +989,22 @@ def delete_user(user_id):
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         conn.close()
+@app.route('/upgrade_premium', methods=['POST'])
+def upgrade_premium():
+    data = request.get_json(force=True, silent=True) or {}
+    user_id = data.get('user_id')
+    if not user_id:
+        return jsonify({"status": "error", "message": "Missing user ID"}), 400
 
+    conn = get_db_connection()
+    try:
+        conn.execute('UPDATE users SET is_premium = 1 WHERE id = ?', (user_id,))
+        conn.commit()
+        return jsonify({"status": "success", "message": "Welcome to LHC Gold Roaster Club! ☕"}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        conn.close()
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
