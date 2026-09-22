@@ -186,14 +186,57 @@ def setup_database():
             expires_at DATETIME NOT NULL
         )
     ''')
-
+# 10, Dating Preferences Columns to Users Table
+    pref_cols = [
+        ('pref_age_min', 'INTEGER DEFAULT 18'),
+        ('pref_age_max', 'INTEGER DEFAULT 85'),
+        ('pref_genders', 'TEXT'),
+        ('pref_builds', 'TEXT'),
+        ('pref_habits', 'TEXT'),
+        ('pref_beliefs', 'TEXT'),
+        ('pref_backgrounds', 'TEXT')
+    ]
+    for col, col_type in pref_cols:
+        try:
+            cursor.execute(f'ALTER TABLE users ADD COLUMN {col} {col_type}')
+        except sqlite3.OperationalError:
+            pass
     conn.commit()
     conn.close()
 
 
 setup_database()
 
+@app.route('/update_preferences', methods=['POST'])
+def update_preferences():
+    data = request.get_json(force=True, silent=True) or {}
+    user_id = data.get('user_id')
+    
+    if not user_id:
+        return jsonify({"status": "error", "message": "Missing user ID"}), 400
 
+    age_min = data.get('age_min', 18)
+    age_max = data.get('age_max', 85)
+    genders = ",".join(data.get('genders', []))
+    builds = ",".join(data.get('builds', []))
+    habits = ",".join(data.get('habits', []))
+    beliefs = ",".join(data.get('beliefs', []))
+    backgrounds = ",".join(data.get('backgrounds', []))
+
+    conn = get_db_connection()
+    try:
+        conn.execute('''
+            UPDATE users SET
+            pref_age_min = ?, pref_age_max = ?, pref_genders = ?,
+            pref_builds = ?, pref_habits = ?, pref_beliefs = ?, pref_backgrounds = ?
+            WHERE id = ?
+        ''', (age_min, age_max, genders, builds, habits, beliefs, backgrounds, user_id))
+        conn.commit()
+        return jsonify({"status": "success", "message": "Preferences updated!"}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        conn.close()
 @app.route('/ping', methods=['GET'])
 def ping():
     return jsonify({"status": "success", "message": "Coffee Sparks server is awake!"})
@@ -741,13 +784,32 @@ def get_feed():
     if lat is not None and lng is not None:
         conn.execute('UPDATE users SET last_lat = ?, last_lng = ? WHERE id = ?', (lat, lng, current_user_id))
         conn.commit()
+    
+    # 1. Fetch current user's preferences
+    prefs = conn.execute('SELECT pref_age_min, pref_age_max, pref_genders FROM users WHERE id = ?', (current_user_id,)).fetchone()
+    
+    age_min = prefs['pref_age_min'] if prefs and prefs['pref_age_min'] else 18
+    age_max = prefs['pref_age_max'] if prefs and prefs['pref_age_max'] else 85
+    pref_genders_str = prefs['pref_genders'] if prefs and prefs['pref_genders'] else ""
+    pref_genders = pref_genders_str.split(',') if pref_genders_str else []
 
-    cursor = conn.cursor()
-    potential_matches = cursor.execute('''
+    # 2. Build the dynamic discovery query
+    query = '''
         SELECT id, nickname, age, gender, coffee_shop, bio, profile_image, caffeine_status, last_lat, last_lng
         FROM users 
         WHERE id != ? AND last_lat IS NOT NULL AND last_lng IS NOT NULL
-    ''', (current_user_id,)).fetchall()
+          AND age >= ? AND age <= ?
+    '''
+    params = [current_user_id, age_min, age_max]
+
+    # Add gender filters if the user selected any
+    if pref_genders and pref_genders[0] != "":
+        placeholders = ','.join(['?'] * len(pref_genders))
+        query += f" AND gender IN ({placeholders})"
+        params.extend(pref_genders)
+
+    cursor = conn.cursor()
+    potential_matches = cursor.execute(query, params).fetchall()
     conn.close()
 
     feed_list = []
@@ -758,7 +820,7 @@ def get_feed():
         if distance <= MAX_DISTANCE_KM:
             avatar = u['profile_image']
             img_url = f"{request.host_url}uploads/{avatar}" if avatar else "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80"
-
+            
             feed_list.append({
                 "id": u["id"],
                 "name": u["nickname"] or "Anonymous",
@@ -769,7 +831,7 @@ def get_feed():
                 "tags": ["Coffee Lover", u["caffeine_status"] or "Local", u["coffee_shop"] or "Explorer"],
                 "distance_km": round(distance, 1)
             })
-
+            
     feed_list.sort(key=lambda x: x['distance_km'])
     return jsonify({"status": "success", "feed": feed_list}), 200
 
