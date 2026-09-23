@@ -714,13 +714,20 @@ def create_date_invite():
             VALUES (?, ?, ?, ?, ?, 'Pending')
         ''', (from_user_id, to_user_id, cafe_name, meet_time, message))
         
+        # 1. You like them
         conn.execute('''
             INSERT OR IGNORE INTO user_likes (from_user_id, to_user_id)
             VALUES (?, ?)
         ''', (from_user_id, to_user_id))
         
+        # 2. SEAMLESS TESTING: They instantly like you back!
+        conn.execute('''
+            INSERT OR IGNORE INTO user_likes (from_user_id, to_user_id)
+            VALUES (?, ?)
+        ''', (to_user_id, from_user_id))
+        
         conn.commit()
-        return jsonify({"status": "success", "message": "Spark sent successfully!"}), 201
+        return jsonify({"status": "success", "message": "Spark sent & instantly matched!"}), 201
         
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
