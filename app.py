@@ -84,10 +84,12 @@ def setup_database():
             cursor.execute(f'ALTER TABLE users ADD COLUMN {col} {col_type}')
         except sqlite3.OperationalError:
             pass
-try:
+
+    try:
         cursor.execute("ALTER TABLE users ADD COLUMN is_premium INTEGER DEFAULT 0")
     except sqlite3.OperationalError:
         pass
+
     # 2. User Photos Table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS user_photos (
@@ -189,7 +191,8 @@ try:
             expires_at DATETIME NOT NULL
         )
     ''')
-# 10, Dating Preferences Columns to Users Table
+
+    # 10. Dating Preferences Columns to Users Table
     pref_cols = [
         ('pref_age_min', 'INTEGER DEFAULT 18'),
         ('pref_age_max', 'INTEGER DEFAULT 85'),
@@ -204,11 +207,13 @@ try:
             cursor.execute(f'ALTER TABLE users ADD COLUMN {col} {col_type}')
         except sqlite3.OperationalError:
             pass
+
     conn.commit()
     conn.close()
 
 
 setup_database()
+
 
 @app.route('/update_preferences', methods=['POST'])
 def update_preferences():
@@ -240,6 +245,8 @@ def update_preferences():
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         conn.close()
+
+
 @app.route('/ping', methods=['GET'])
 def ping():
     return jsonify({"status": "success", "message": "Coffee Sparks server is awake!"})
@@ -269,7 +276,6 @@ def request_otp():
     finally:
         conn.close()
 
-    # Check Render Secret File location, environment variables, then local directory
     BREVO_API_KEY = os.environ.get("BREVO_API_KEY")
     if not BREVO_API_KEY:
         render_secret_path = "/etc/secrets/brevo_key.txt"
@@ -685,6 +691,8 @@ def send_message():
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         conn.close()
+
+
 @app.route('/create_date_invite', methods=['POST'])
 def create_date_invite():
     data = request.get_json(force=True, silent=True) or {}
@@ -699,13 +707,11 @@ def create_date_invite():
 
     conn = get_db_connection()
     try:
-        # 1. Insert the date invite into the database
         conn.execute('''
             INSERT INTO date_invites (from_user_id, to_user_id, cafe_name, meet_time, message, status)
             VALUES (?, ?, ?, ?, ?, 'Pending')
         ''', (from_user_id, to_user_id, cafe_name, meet_time, message))
         
-        # 2. Automatically log this as a "Like" so it shows up in their stats
         conn.execute('''
             INSERT OR IGNORE INTO user_likes (from_user_id, to_user_id)
             VALUES (?, ?)
@@ -718,6 +724,7 @@ def create_date_invite():
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         conn.close()
+
 
 @app.route('/post_comment', methods=['POST'])
 def post_comment():
@@ -788,7 +795,6 @@ def get_feed():
         conn.execute('UPDATE users SET last_lat = ?, last_lng = ? WHERE id = ?', (lat, lng, current_user_id))
         conn.commit()
     
-    # 1. Fetch current user's preferences
     prefs = conn.execute('SELECT pref_age_min, pref_age_max, pref_genders FROM users WHERE id = ?', (current_user_id,)).fetchone()
     
     age_min = prefs['pref_age_min'] if prefs and prefs['pref_age_min'] else 18
@@ -796,7 +802,6 @@ def get_feed():
     pref_genders_str = prefs['pref_genders'] if prefs and prefs['pref_genders'] else ""
     pref_genders = pref_genders_str.split(',') if pref_genders_str else []
 
-    # 2. Build the dynamic discovery query
     query = '''
         SELECT id, nickname, age, gender, coffee_shop, bio, profile_image, caffeine_status, last_lat, last_lng
         FROM users 
@@ -805,7 +810,6 @@ def get_feed():
     '''
     params = [current_user_id, age_min, age_max]
 
-    # Add gender filters if the user selected any
     if pref_genders and pref_genders[0] != "":
         placeholders = ','.join(['?'] * len(pref_genders))
         query += f" AND gender IN ({placeholders})"
@@ -848,7 +852,6 @@ def serve_file(filename):
 def get_user_profile(user_id):
     conn = get_db_connection()
     user = conn.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
-    "is_premium": bool(user["is_premium"]) if "is_premium" in user.keys() else False,
     conn.close()
 
     if not user:
@@ -861,7 +864,8 @@ def get_user_profile(user_id):
                 "coffee_shop": "Local Cafe",
                 "bio": "Ready for coffee!",
                 "image": "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=800&q=80",
-                "kyc_status": "Unverified"
+                "kyc_status": "Unverified",
+                "is_premium": False
             }
         }), 200
 
@@ -878,7 +882,8 @@ def get_user_profile(user_id):
             "bio": user["bio"],
             "image": img_url,
             "caffeine_status": user["caffeine_status"] if "caffeine_status" in user.keys() else "Chilling",
-            "kyc_status": user["kyc_status"] if "kyc_status" in user.keys() else "Unverified"
+            "kyc_status": user["kyc_status"] if "kyc_status" in user.keys() else "Unverified",
+            "is_premium": bool(user["is_premium"]) if "is_premium" in user.keys() else False
         }
     }), 200
 
@@ -989,6 +994,8 @@ def delete_user(user_id):
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         conn.close()
+
+
 @app.route('/upgrade_premium', methods=['POST'])
 def upgrade_premium():
     data = request.get_json(force=True, silent=True) or {}
@@ -1005,6 +1012,7 @@ def upgrade_premium():
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         conn.close()
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
