@@ -66,6 +66,7 @@ def setup_database():
         )
     ''')
 
+    # ADDED 'last_active' to migrations for the Online Status feature!
     migration_cols = [
         ('caffeine_status', "TEXT DEFAULT 'Craving an iced latte ☕'"),
         ('audio_intro', 'TEXT'),
@@ -77,7 +78,8 @@ def setup_database():
         ('sq_dog', 'TEXT'),
         ('sq_food', 'TEXT'),
         ('sq_phone', 'TEXT'),
-        ('sq_date', 'TEXT')
+        ('sq_date', 'TEXT'),
+        ('last_active', 'TEXT') # <-- NEW COLUMN FOR ONLINE STATUS
     ]
     for col, col_type in migration_cols:
         try:
@@ -802,9 +804,9 @@ def get_feed():
     age_max = prefs['pref_age_max'] if prefs and prefs['pref_age_max'] else 85
     user_shop = prefs['coffee_shop'] if prefs and prefs['coffee_shop'] else ""
 
-    # Relaxed query: Get other users, filtering only by basic age bounds
+    # Relaxed query: Added last_active to query
     query = '''
-        SELECT id, nickname, age, gender, coffee_shop, bio, profile_image, caffeine_status, last_lat, last_lng
+        SELECT id, nickname, age, gender, coffee_shop, bio, profile_image, caffeine_status, last_lat, last_lng, last_active
         FROM users 
         WHERE id != ? AND age >= ? AND age <= ?
     '''
@@ -816,20 +818,29 @@ def get_feed():
 
     feed_list = []
     for u in potential_matches:
-        # Calculate actual distance if coordinates exist, otherwise default to a friendly 1.2 km
         u_lat = u['last_lat']
         u_lng = u['last_lng']
         if lat is not None and lng is not None and u_lat is not None and u_lng is not None:
             distance = haversine_distance(lat, lng, u_lat, u_lng)
         else:
-            distance = 1.2 # Friendly default for testing
+            distance = 1.2 
 
         avatar = u['profile_image']
         img_url = f"{request.host_url}uploads/{avatar}" if avatar else "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80"
         
-        # Check if they share the same favorite coffee shop/brew vibe
         is_coffee_match = user_shop and u['coffee_shop'] and user_shop.strip().lower() == u['coffee_shop'].strip().lower()
         tag_title = "☕ Shared Coffee Vibe" if is_coffee_match else (u['coffee_shop'] or "Local Cafe")
+
+        # --- ONLINE STATUS CALCULATION ---
+        last_active_str = u['last_active']
+        is_online = False
+        if last_active_str:
+            try:
+                last_act_dt = datetime.strptime(last_active_str, "%Y-%m-%d %H:%M:%S")
+                if datetime.utcnow() - last_act_dt < timedelta(minutes=5):
+                    is_online = True
+            except Exception:
+                pass
 
         feed_list.append({
             "id": u["id"],
@@ -839,18 +850,34 @@ def get_feed():
             "bio": u["bio"] or "Looking for good coffee and great conversation!",
             "image": img_url,
             "tags": ["Coffee Lover", tag_title, u["caffeine_status"] or "Craving Latte"],
-            "distance_km": round(distance, 1)
+            "distance_km": round(distance, 1),
+            "is_online": is_online # Added to feed
         })
         
-    # Sort so that people with closer distances or shared coffee spots appear first, but nobody is blocked!
     feed_list.sort(key=lambda x: x['distance_km'])
-    
     return jsonify({"status": "success", "feed": feed_list}), 200
 
 
 @app.route('/uploads/<filename>')
 def serve_file(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+
+@app.route('/heartbeat', methods=['POST'])
+def heartbeat():
+    data = request.json
+    user_id = data.get('user_id')
+    
+    if user_id:
+        # Save exact formatted string so it is easy to parse later
+        now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        conn = get_db_connection()
+        conn.execute('UPDATE users SET last_active = ? WHERE id = ?', (now_str, user_id))
+        conn.commit()
+        conn.close()
+        return jsonify({"status": "success"}), 200
+        
+    return jsonify({"error": "Missing user_id"}), 400
 
 
 @app.route('/user_profile/<int:user_id>', methods=['GET'])
@@ -860,22 +887,21 @@ def get_user_profile(user_id):
     conn.close()
 
     if not user:
-        return jsonify({
-            "status": "success",
-            "user": {
-                "id": user_id,
-                "nickname": "Coffee Lover",
-                "age": 25,
-                "coffee_shop": "Local Cafe",
-                "bio": "Ready for coffee!",
-                "image": "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=800&q=80",
-                "kyc_status": "Unverified",
-                "is_premium": False
-            }
-        }), 200
+        return jsonify({"status": "error", "message": "User not found"}), 404
 
     avatar = user['profile_image']
     img_url = f"{request.host_url}uploads/{avatar}" if avatar else "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=800&q=80"
+
+    # Profile online status logic
+    last_active_str = user['last_active'] if 'last_active' in user.keys() else None
+    is_online = False
+    if last_active_str:
+        try:
+            last_act_dt = datetime.strptime(last_active_str, "%Y-%m-%d %H:%M:%S")
+            if datetime.utcnow() - last_act_dt < timedelta(minutes=5):
+                is_online = True
+        except Exception:
+            pass
 
     return jsonify({
         "status": "success",
@@ -888,7 +914,8 @@ def get_user_profile(user_id):
             "image": img_url,
             "caffeine_status": user["caffeine_status"] if "caffeine_status" in user.keys() else "Chilling",
             "kyc_status": user["kyc_status"] if "kyc_status" in user.keys() else "Unverified",
-            "is_premium": bool(user["is_premium"]) if "is_premium" in user.keys() else False
+            "is_premium": bool(user["is_premium"]) if "is_premium" in user.keys() else False,
+            "is_online": is_online
         }
     }), 200
 
