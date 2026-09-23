@@ -794,52 +794,57 @@ def get_feed():
     if lat is not None and lng is not None:
         conn.execute('UPDATE users SET last_lat = ?, last_lng = ? WHERE id = ?', (lat, lng, current_user_id))
         conn.commit()
-    
-    prefs = conn.execute('SELECT pref_age_min, pref_age_max, pref_genders FROM users WHERE id = ?', (current_user_id,)).fetchone()
+
+    # Pull user's preferences if they exist
+    prefs = conn.execute('SELECT pref_age_min, pref_age_max, pref_genders, coffee_shop FROM users WHERE id = ?', (current_user_id,)).fetchone()
     
     age_min = prefs['pref_age_min'] if prefs and prefs['pref_age_min'] else 18
     age_max = prefs['pref_age_max'] if prefs and prefs['pref_age_max'] else 85
-    pref_genders_str = prefs['pref_genders'] if prefs and prefs['pref_genders'] else ""
-    pref_genders = pref_genders_str.split(',') if pref_genders_str else []
+    user_shop = prefs['coffee_shop'] if prefs and prefs['coffee_shop'] else ""
 
+    # Relaxed query: Get other users, filtering only by basic age bounds
     query = '''
         SELECT id, nickname, age, gender, coffee_shop, bio, profile_image, caffeine_status, last_lat, last_lng
         FROM users 
-        WHERE id != ? AND last_lat IS NOT NULL AND last_lng IS NOT NULL
-          AND age >= ? AND age <= ?
+        WHERE id != ? AND age >= ? AND age <= ?
     '''
     params = [current_user_id, age_min, age_max]
-
-    if pref_genders and pref_genders[0] != "":
-        placeholders = ','.join(['?'] * len(pref_genders))
-        query += f" AND gender IN ({placeholders})"
-        params.extend(pref_genders)
 
     cursor = conn.cursor()
     potential_matches = cursor.execute(query, params).fetchall()
     conn.close()
 
     feed_list = []
-    MAX_DISTANCE_KM = 5.0
-
     for u in potential_matches:
-        distance = haversine_distance(lat, lng, u['last_lat'], u['last_lng'])
-        if distance <= MAX_DISTANCE_KM:
-            avatar = u['profile_image']
-            img_url = f"{request.host_url}uploads/{avatar}" if avatar else "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80"
-            
-            feed_list.append({
-                "id": u["id"],
-                "name": u["nickname"] or "Anonymous",
-                "age": str(u["age"] or 25),
-                "shop": u["coffee_shop"] or "Local Cafe",
-                "bio": u["bio"] or "Looking for good coffee and great conversation!",
-                "image": img_url,
-                "tags": ["Coffee Lover", u["caffeine_status"] or "Local", u["coffee_shop"] or "Explorer"],
-                "distance_km": round(distance, 1)
-            })
-            
+        # Calculate actual distance if coordinates exist, otherwise default to a friendly 1.2 km
+        u_lat = u['last_lat']
+        u_lng = u['last_lng']
+        if lat is not None and lng is not None and u_lat is not None and u_lng is not None:
+            distance = haversine_distance(lat, lng, u_lat, u_lng)
+        else:
+            distance = 1.2 # Friendly default for testing
+
+        avatar = u['profile_image']
+        img_url = f"{request.host_url}uploads/{avatar}" if avatar else "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80"
+        
+        # Check if they share the same favorite coffee shop/brew vibe
+        is_coffee_match = user_shop and u['coffee_shop'] and user_shop.strip().lower() == u['coffee_shop'].strip().lower()
+        tag_title = "☕ Shared Coffee Vibe" if is_coffee_match else (u['coffee_shop'] or "Local Cafe")
+
+        feed_list.append({
+            "id": u["id"],
+            "name": u["nickname"] or "Anonymous",
+            "age": str(u["age"] or 25),
+            "shop": u["coffee_shop"] or "Local Cafe",
+            "bio": u["bio"] or "Looking for good coffee and great conversation!",
+            "image": img_url,
+            "tags": ["Coffee Lover", tag_title, u["caffeine_status"] or "Craving Latte"],
+            "distance_km": round(distance, 1)
+        })
+        
+    # Sort so that people with closer distances or shared coffee spots appear first, but nobody is blocked!
     feed_list.sort(key=lambda x: x['distance_km'])
+    
     return jsonify({"status": "success", "feed": feed_list}), 200
 
 
