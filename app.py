@@ -849,6 +849,12 @@ def get_feed():
             except Exception:
                 pass
 
+        # (Inside /feed loop, right before feed_list.append)
+        
+        # Fuzz coordinates for safety! (3 decimals is a ~100m radius)
+        safe_lat = round(u_lat, 3) if u_lat is not None else None
+        safe_lng = round(u_lng, 3) if u_lng is not None else None
+
         feed_list.append({
             "id": u["id"],
             "name": u["nickname"] or "Anonymous",
@@ -858,11 +864,29 @@ def get_feed():
             "image": img_url,
             "tags": ["Coffee Lover", tag_title, u["caffeine_status"] or "Craving Latte"],
             "distance_km": round(distance, 1),
-            "is_online": is_online # Added to feed
+            "is_online": is_online,
+            "lat": safe_lat, # <-- ADD THIS
+            "lng": safe_lng  # <-- ADD THIS
         })
         
     feed_list.sort(key=lambda x: x['distance_km'])
-    return jsonify({"status": "success", "feed": feed_list}), 200
+    return jsonify({
+        "status": "success",
+        "user": {
+            "id": user["id"],
+            "nickname": user["nickname"],
+            "age": user["age"],
+            "coffee_shop": user["coffee_shop"],
+            "bio": user["bio"],
+            "image": img_url,
+            "caffeine_status": user["caffeine_status"] if "caffeine_status" in user.keys() else "Chilling",
+            "kyc_status": user["kyc_status"] if "kyc_status" in user.keys() else "Unverified",
+            "is_premium": bool(user["is_premium"]) if "is_premium" in user.keys() else False,
+            "is_online": is_online,
+            "lat": round(user["last_lat"], 3) if user["last_lat"] is not None else None, # <-- ADD THIS
+            "lng": round(user["last_lng"], 3) if user["last_lng"] is not None else None  # <-- ADD THIS
+        }
+    }), 200
 
 
 @app.route('/uploads/<filename>')
