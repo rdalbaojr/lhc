@@ -901,21 +901,6 @@ def get_feed():
         "status": "success",
         "feed": feed_list
     }), 200
-            "user": {                 # <-- This will crash Python instantly!
-            "id": user["id"],
-            "nickname": user["nickname"],
-            "age": user["age"],
-            "coffee_shop": user["coffee_shop"],
-            "bio": user["bio"],
-            "image": img_url,
-            "caffeine_status": user["caffeine_status"] if "caffeine_status" in user.keys() else "Chilling",
-            "kyc_status": user["kyc_status"] if "kyc_status" in user.keys() else "Unverified",
-            "is_premium": bool(user["is_premium"]) if "is_premium" in user.keys() else False,
-            "is_online": is_online,
-            "lat": round(user["last_lat"], 3) if user["last_lat"] is not None else None, # <-- ADD THIS
-            "lng": round(user["last_lng"], 3) if user["last_lng"] is not None else None  # <-- ADD THIS
-        }
-    }), 200
 
 
 @app.route('/uploads/<filename>')
