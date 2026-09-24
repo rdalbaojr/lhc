@@ -902,7 +902,7 @@ def get_feed():
         "status": "success",
         "feed": feed_list
     }), 200
-        "user": {
+        "user": {                 # <-- This will crash Python instantly!
             "id": user["id"],
             "nickname": user["nickname"],
             "age": user["age"],
