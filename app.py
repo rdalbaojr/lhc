@@ -218,6 +218,32 @@ def setup_database():
 
 setup_database()
 
+# Put this route with your other endpoints
+AGORA_APP_ID = "c03d6118308348ba96a6b8a3d5484487"
+AGORA_APP_CERT = "280aa0b50d4144ef9ae2f096bb14be0b"
+@app.route('/get_agora_token', methods=['GET'])
+def get_agora_token():
+    channel_name = request.args.get('channel_name')
+    uid = request.args.get('uid', default=0, type=int)
+    
+    if not channel_name:
+        return jsonify({"error": "channel_name is required"}), 400
+
+    # Role 1 is Broadcaster (allows sending and receiving video)
+    role = 1 
+    # Token valid for 2 hours (7200 seconds)
+    privilege_expired_ts = int(time.time()) + 7200
+
+    token = RtcTokenBuilder.buildTokenWithUid(
+        AGORA_APP_ID, 
+        AGORA_APP_CERT, 
+        channel_name, 
+        uid, 
+        role, 
+        privilege_expired_ts
+    )
+    
+    return jsonify({"status": "success", "token": token, "channel_name": channel_name}), 200
 
 @app.route('/update_preferences', methods=['POST'])
 def update_preferences():
