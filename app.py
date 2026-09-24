@@ -900,6 +900,8 @@ def get_feed():
     feed_list.sort(key=lambda x: x['distance_km'])
     return jsonify({
         "status": "success",
+        "feed": feed_list
+    }), 200
         "user": {
             "id": user["id"],
             "nickname": user["nickname"],
