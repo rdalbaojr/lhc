@@ -7,7 +7,9 @@ import sqlite3
 import time
 from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
-
+# Put these imports at the very top of app.py
+from agora_token_builder import RtcTokenBuilder
+import time
 import requests
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
