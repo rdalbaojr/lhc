@@ -877,8 +877,6 @@ def get_feed():
             except Exception:
                 pass
 
-        # (Inside /feed loop, right before feed_list.append)
-        
         # Fuzz coordinates for safety! (3 decimals is a ~100m radius)
         safe_lat = round(u_lat, 3) if u_lat is not None else None
         safe_lng = round(u_lng, 3) if u_lng is not None else None
@@ -893,11 +891,12 @@ def get_feed():
             "tags": ["Coffee Lover", tag_title, u["caffeine_status"] or "Craving Latte"],
             "distance_km": round(distance, 1),
             "is_online": is_online,
-            "lat": safe_lat, # <-- ADD THIS
-            "lng": safe_lng  # <-- ADD THIS
+            "lat": safe_lat, 
+            "lng": safe_lng  
         })
         
     feed_list.sort(key=lambda x: x['distance_km'])
+    
     return jsonify({
         "status": "success",
         "feed": feed_list
