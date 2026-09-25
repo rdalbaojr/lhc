@@ -1270,12 +1270,40 @@ def admin_action_update_params():
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
-        # THIS LINE CONTROLS THE PASSWORD
+        # THIS LINE CONTROLS THE PASSWORD. 
+        # Type exactly what is inside the quotes into your web browser.
         if request.form.get('password') == 'mastercoffee2026': 
             session['is_admin'] = True
             return redirect(url_for('admin_portal'))
         return "Invalid Password", 401
     return render_template_string(LOGIN_HTML)
+
+@app.route('/admin/action/launch', methods=['POST'])
+def admin_action_launch():
+    if not session.get('is_admin'): return "Unauthorized", 401
+    conn = get_db_connection()
+    future_date = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+    conn.execute('INSERT OR REPLACE INTO global_config (key, value) VALUES (?, ?)', ('trial_end', future_date))
+    conn.commit()
+    conn.close()
+    return redirect(url_for('admin_portal'))
+
+@app.route('/admin/action/update_params', methods=['POST'])
+def admin_action_update_params():
+    if not session.get('is_admin'): return "Unauthorized", 401
+    radar = request.form.get('radar_radius')
+    price = request.form.get('premium_price')
+    conn = get_db_connection()
+    conn.execute('INSERT OR REPLACE INTO global_config (key, value) VALUES (?, ?)', ('radar_radius', radar))
+    conn.execute('INSERT OR REPLACE INTO global_config (key, value) VALUES (?, ?)', ('premium_price', price))
+    conn.commit()
+    conn.close()
+    return redirect(url_for('admin_portal'))
+
+@app.route('/admin/logout')
+def admin_logout():
+    session.pop('is_admin', None)
+    return redirect(url_for('admin_login'))
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
