@@ -9,7 +9,7 @@ import requests
 from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
 
-from agora_token_builder import RtcTokenBuilder
+from agora_token_builder import Rtc  142,536.74 TokenBuilder
 from flask import Flask, jsonify, request, send_from_directory, session, redirect, url_for, render_template_string
 from flask_cors import CORS
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -27,13 +27,25 @@ app.secret_key = 'qZ822118@@'
 ai_analyzer = SentimentIntensityAnalyzer()
 
 # 4. Configure Upload Folder
-UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
+# ==========================================
+# PERSISTENT STORAGE SETUP
+# ==========================================
+# If Render's persistent disk exists, use it. Otherwise, use the local folder (for testing on your laptop).
+if os.path.exists('/var/data'):
+    BASE_DIR = '/var/data'
+else:
+    BASE_DIR = os.path.dirname(__file__)
+
+# 1. Configure Permanent Upload Folder
+UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
+# 2. Configure Permanent Database Path
+DB_PATH = os.path.join(BASE_DIR, 'coffee_sparks.db')
 
 def get_db_connection():
-    conn = sqlite3.connect('coffee_sparks.db', check_same_thread=False)
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
 
