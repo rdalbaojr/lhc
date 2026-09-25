@@ -5,30 +5,28 @@ import random
 import smtplib
 import sqlite3
 import time
+import requests
 from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
-# Put these imports at the very top of app.py
+
 from agora_token_builder import RtcTokenBuilder
-import time
-import requests
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, session, redirect, url_for, render_template_string
 from flask_cors import CORS
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
-# Add these specific Flask tools to your imports at the top
-from flask import Flask, jsonify, request, send_from_directory, session, redirect, url_for, render_template_string
-from flask import Flask, jsonify, request, send_from_directory, session, redirect, url_for, render_template_string
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer # NEW: The AI Brain
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
+# 1. Initialize the App exactly ONCE
 app = Flask(__name__)
-# Initialize the AI once so it's ready for all chats
+
+# 2. Apply configurations to this single app instance
+CORS(app)
+app.secret_key = 'qZ822118@@' 
+
+# 3. Initialize the AI Brain
 ai_analyzer = SentimentIntensityAnalyzer()
 
-app = Flask(__name__)
-app.secret_key = 'qZ822118@@' # Required for web login sessions
-app = Flask(__name__)
-CORS(app)
-
+# 4. Configure Upload Folder
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
