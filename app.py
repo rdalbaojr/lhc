@@ -313,7 +313,139 @@ def request_otp():
         return jsonify({"status": "error", "message": f"Database error: {str(e)}"}), 500
     finally:
         conn.close()
+# ==========================================
+# PUBLIC LANDING PAGE & COMPLIANCE
+# ==========================================
 
+LANDING_PAGE_HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Let's Have Coffee | Meet, Match & Brew</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #1C0F0A; color: white; margin: 0; padding: 0; line-height: 1.6; }
+        .hero { text-align: center; padding: 80px 20px; background: linear-gradient(180deg, #2C1810 0%, #1C0F0A 100%); border-bottom: 1px solid #3A2520; }
+        .hero h1 { color: #D6AD70; font-size: 3rem; margin-bottom: 10px; }
+        .hero p { font-size: 1.2rem; color: #CCC; max-width: 600px; margin: 0 auto 30px auto; }
+        .btn-download { display: inline-block; background: #D6AD70; color: black; padding: 15px 30px; font-size: 1.2rem; font-weight: bold; text-decoration: none; border-radius: 30px; box-shadow: 0 4px 15px rgba(214, 173, 112, 0.3); transition: transform 0.2s; }
+        .btn-download:hover { transform: translateY(-2px); }
+        .section { max-width: 1000px; margin: 0 auto; padding: 60px 20px; }
+        .section h2 { color: #D6AD70; text-align: center; font-size: 2rem; margin-bottom: 40px; }
+        .features { display: flex; flex-wrap: wrap; gap: 30px; justify-content: center; }
+        .feature-card { background: #2C1810; padding: 30px; border-radius: 16px; flex: 1; min-width: 250px; text-align: center; border: 1px solid #3A2520; }
+        .feature-card h3 { color: white; margin-top: 0; }
+        .faq { max-width: 700px; margin: 0 auto; background: #2C1810; padding: 30px; border-radius: 16px; border: 1px solid #3A2520; }
+        .faq h4 { color: #D6AD70; margin-bottom: 5px; }
+        .faq p { color: #AAA; margin-top: 0; margin-bottom: 20px; }
+        .footer { text-align: center; padding: 40px 20px; border-top: 1px solid #3A2520; margin-top: 40px; font-size: 0.9rem; color: #888; }
+        .footer a { color: #D6AD70; text-decoration: none; margin: 0 10px; }
+    </style>
+</head>
+<body>
+
+    <div class="hero">
+        <h1>Let's Have Coffee ☕</h1>
+        <p>Skip the endless swiping. Match with local coffee lovers, vibe check with our AI Spark Meter, and meet up for a real connection.</p>
+        <a href="/download-apk" class="btn-download">Download APK for Android</a>
+    </div>
+
+    <div class="section">
+        <h2>Why Join The Club?</h2>
+        <div class="features">
+            <div class="feature-card">
+                <h3>⚡ AI Spark Meter</h3>
+                <p>Our intelligent chat meter physically rises and falls based on the vibe of your conversation. No more guessing if they are interested.</p>
+            </div>
+            <div class="feature-card">
+                <h3>📍 Local Matches</h3>
+                <p>Filter connections by your favorite local coffee shops. Match with people who already love your daily spot.</p>
+            </div>
+            <div class="feature-card">
+                <h3>🛡️ Verified Safe</h3>
+                <p>Strict 18+ entry, optional government ID KYC verification, and built-in video dating to ensure the person you meet is real.</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>Help & FAQ</h2>
+        <div class="faq">
+            <h4>How do I install the APK?</h4>
+            <p>Download the file using the button above. Open your phone's Settings > Security, and enable "Install from Unknown Sources", then tap the downloaded file.</p>
+            
+            <h4>Is the app free to use?</h4>
+            <p>Yes! Matching and chatting are completely free. Premium features like unlimited Virtual Video Dates are available for a small upgrade.</p>
+            
+            <h4>How do I report a bad interaction?</h4>
+            <p>Tap the three-dot menu in the top right of any chat or profile to instantly report or block a user. Our admin team reviews all reports within 24 hours.</p>
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>&copy; 2026 Let's Have Coffee. All rights reserved.</p>
+        <div>
+            <a href="/privacy">Privacy Policy</a> | 
+            <a href="/terms">Terms of Service</a> | 
+            <a href="mailto:support@letshavecoffee.com">Contact Support</a>
+        </div>
+    </div>
+
+</body>
+</html>
+"""
+
+PRIVACY_POLICY_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Privacy Policy | Let's Have Coffee</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #1C0F0A; color: #CCC; max-width: 800px; margin: 0 auto; padding: 40px 20px; line-height: 1.6; }
+        h1, h2 { color: #D6AD70; }
+        a { color: #D6AD70; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <a href="/">&larr; Back to Home</a>
+    <h1>Privacy Policy</h1>
+    <p>Last updated: October 2026</p>
+    
+    <h2>1. Information We Collect</h2>
+    <p>We collect information you provide directly to us during registration, including your email, age (must be 18+), gender preferences, location data (when actively using the radar feature), and profile images.</p>
+    
+    <h2>2. User-Generated Content (UGC)</h2>
+    <p>Let's Have Coffee is a social platform. Messages, images, and public comments you post are stored securely on our servers. We maintain a zero-tolerance policy for objectionable content. Users can be blocked or reported directly within the app.</p>
+    
+    <h2>3. How We Use Your Data</h2>
+    <p>Your location data is used strictly to calculate distance to potential matches and is never shared with third parties. Your chat data is processed by our AI Spark Meter in real-time to generate match compatibility scores.</p>
+    
+    <h2>4. Data Deletion</h2>
+    <p>You may request full deletion of your account, photos, and chat history at any time by navigating to Settings > Delete Account within the app, or by contacting our support team.</p>
+</body>
+</html>
+"""
+
+@app.route('/', methods=['GET'])
+def index():
+    return render_template_string(LANDING_PAGE_HTML)
+
+@app.route('/privacy', methods=['GET'])
+def privacy():
+    return render_template_string(PRIVACY_POLICY_HTML)
+
+@app.route('/terms', methods=['GET'])
+def terms():
+    return "<h1>Terms of Service</h1><p>By using Let's Have Coffee, you confirm you are 18 years or older and agree to maintain a respectful, safe environment for all users.</p>"
+
+@app.route('/download-apk', methods=['GET'])
+def download_apk():
+    # This looks for 'lhc.apk' in your uploads folder and serves it to the user
+    try:
+        return send_from_directory(app.config['UPLOAD_FOLDER'], 'lhc.apk', as_attachment=True)
+    except FileNotFoundError:
+        return "The APK file is currently being updated. Please check back later.", 404
     BREVO_API_KEY = os.environ.get("BREVO_API_KEY")
     if not BREVO_API_KEY:
         render_secret_path = "/etc/secrets/brevo_key.txt"
