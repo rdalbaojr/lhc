@@ -7,3 +7,4 @@ psycopg2-binary==2.9.9
 requests
 python-dotenv
 agora-token-builder==1.0.0
+vaderSentiment==3.3.2
