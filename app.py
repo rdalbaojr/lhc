@@ -9,7 +9,7 @@ import requests
 from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
 
-from agora_token_builder import Rtc  142,536.74 TokenBuilder
+from agora_token_builder import RtcTokenBuilder
 from flask import Flask, jsonify, request, send_from_directory, session, redirect, url_for, render_template_string
 from flask_cors import CORS
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -231,7 +231,27 @@ def setup_database():
             cursor.execute(f'ALTER TABLE users ADD COLUMN {col} {col_type}')
         except sqlite3.OperationalError:
             pass
+# 11. Blocked Users Table (Google Play Compliance)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS blocked_users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            blocker_id INTEGER NOT NULL,
+            blocked_id INTEGER NOT NULL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(blocker_id, blocked_id)
+        )
+    ''')
 
+    # 12. Reported Users Table (Google Play Compliance)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS reported_users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reporter_id INTEGER NOT NULL,
+            reported_id INTEGER NOT NULL,
+            reason TEXT NOT NULL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
     conn.commit()
     conn.close()
 
