@@ -557,7 +557,28 @@ def recover_account():
         return jsonify({"status": "error", "message": "Invalid request type"}), 400
     finally:
         conn.close()
-
+@app.route('/api/auto_upload_apk', methods=['POST'])
+def auto_upload_apk():
+    # 1. Check for your secret password in the request headers
+    token = request.headers.get('Authorization')
+    if token != 'Bearer qZ822118@@':
+        return jsonify({"error": "Unauthorized"}), 401
+        
+    # 2. Check if the file was sent
+    if 'apk_file' not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+        
+    file = request.files['apk_file']
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+        
+    # 3. Save the file directly to the permanent hard drive
+    if file and file.filename.endswith('.apk'):
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], 'lhc.apk')
+        file.save(filepath)
+        return jsonify({"status": "success", "message": "APK updated instantly!"}), 200
+        
+    return jsonify({"error": "Invalid file type."}), 400
 @app.route('/feed', methods=['GET'])
 def get_feed():
     current_user_id = request.args.get('user_id', default=1, type=int)
