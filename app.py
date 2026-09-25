@@ -316,7 +316,6 @@ def request_otp():
         return jsonify({"status": "success", "message": "OTP Sent (Fallback)!"}), 200
 
     try:
-        # Correctly defined headers and payload
         headers = {
             "accept": "application/json",
             "api-key": BREVO_API_KEY,
@@ -329,13 +328,16 @@ def request_otp():
             "htmlContent": f"<h2>Your login code is: {code}</h2><p>This code expires in 5 minutes.</p>"
         }
 
-        # Added timeout=8 so Brevo can never freeze your server for more than 8 seconds
         response = requests.post(
             "https://api.brevo.com/v3/smtp/email",
             headers=headers,
             json=payload,
             timeout=8
         )
+        
+        # PRINT EXACT BREVO API RESPONSE TO RENDER LOGS
+        print(f"BREVO API RESPONSE: Status {response.status_code} - {response.text}")
+
         if response.status_code in [200, 201]:
             return jsonify({"status": "success", "message": "OTP Sent to your Inbox!"}), 200
         else:
@@ -569,12 +571,10 @@ def recover_account():
 
 @app.route('/api/auto_upload_apk', methods=['POST'])
 def auto_upload_apk():
-    # 1. Check for your secret password in the request headers
     token = request.headers.get('Authorization')
     if token != 'Bearer qZ822118@@':
         return jsonify({"error": "Unauthorized"}), 401
         
-    # 2. Check if the file was sent
     if 'apk_file' not in request.files:
         return jsonify({"error": "No file uploaded"}), 400
         
@@ -582,7 +582,6 @@ def auto_upload_apk():
     if file.filename == '':
         return jsonify({"error": "No selected file"}), 400
         
-    # 3. Save the file directly to the permanent hard drive
     if file and file.filename.endswith('.apk'):
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], 'lhc.apk')
         file.save(filepath)
@@ -1435,7 +1434,6 @@ def admin_upload_apk():
         return "No selected file", 400
         
     if file and file.filename.endswith('.apk'):
-        # We force the name to always be 'lhc.apk' so the public download link never breaks
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], 'lhc.apk')
         file.save(filepath)
         return redirect(url_for('admin_portal'))
