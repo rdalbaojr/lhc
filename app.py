@@ -1275,6 +1275,16 @@ ADMIN_DASHBOARD_HTML = """
 </head>
 <body>
     <h1>☕ Let's Have Coffee - Admin</h1>
+    
+    <div class="card">
+        <h3>📦 Update Public App (APK)</h3>
+        <p>Upload a new <b>.apk</b> file to instantly update the public download link for all users.</p>
+        <form action="/admin/upload_apk" method="POST" enctype="multipart/form-data">
+            <input type="file" name="apk_file" accept=".apk" required style="background: #1C0F0A; border: 1px solid #D6AD70; color: white;">
+            <button type="submit">Upload & Go Live</button>
+        </form>
+    </div>
+
     <div class="card">
         <h3>🚀 Application Launch</h3>
         <p>Current Trial End Date: <br><b>{{ trial_end if trial_end else 'App Not Launched Yet' }}</b></p>
@@ -1282,6 +1292,7 @@ ADMIN_DASHBOARD_HTML = """
             <button class="danger" type="submit">Start 30-Day Free Trial For All Users</button>
         </form>
     </div>
+
     <div class="card">
         <h3>⚙️ Global Parameters</h3>
         <form action="/admin/action/update_params" method="POST">
@@ -1292,6 +1303,7 @@ ADMIN_DASHBOARD_HTML = """
             <button type="submit">Save Parameters</button>
         </form>
     </div>
+
     <a href="/admin/logout" style="color: #D6AD70; text-decoration: none; font-weight: bold;">Log Out</a>
 </body>
 </html>
@@ -1373,6 +1385,23 @@ def admin_action_update_params():
 def admin_logout():
     session.pop('is_admin', None)
     return redirect(url_for('admin_login'))
-
+@app.route('/admin/upload_apk', methods=['POST'])
+def admin_upload_apk():
+    if not session.get('is_admin'): return "Unauthorized", 401
+    
+    if 'apk_file' not in request.files:
+        return "No file uploaded", 400
+        
+    file = request.files['apk_file']
+    if file.filename == '':
+        return "No selected file", 400
+        
+    if file and file.filename.endswith('.apk'):
+        # We force the name to always be 'lhc.apk' so the public download link never breaks
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], 'lhc.apk')
+        file.save(filepath)
+        return redirect(url_for('admin_portal'))
+        
+    return "Invalid file type. Must be an .apk file.", 400
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
