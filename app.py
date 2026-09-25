@@ -1238,9 +1238,8 @@ def admin_portal():
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
-        # THIS LINE CONTROLS THE PASSWORD. 
-        # Type exactly what is inside the quotes into your web browser.
-        if request.form.get('password') == 'mastercoffee2026': 
+        # Now your human password matches your secret key
+        if request.form.get('password') == 'qZ822118@@': 
             session['is_admin'] = True
             return redirect(url_for('admin_portal'))
         return "Invalid Password", 401
