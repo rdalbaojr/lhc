@@ -15,7 +15,11 @@ from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
+# Add these specific Flask tools to your imports at the top
+from flask import Flask, jsonify, request, send_from_directory, session, redirect, url_for, render_template_string
 
+app = Flask(__name__)
+app.secret_key = 'qZ822118@@' # Required for web login sessions
 app = Flask(__name__)
 CORS(app)
 
@@ -1089,7 +1093,128 @@ def upgrade_premium():
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         conn.close()
+# ==========================================
+# STANDALONE WEB ADMIN PORTAL
+# ==========================================
 
+ADMIN_DASHBOARD_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>LHC Admin Portal</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: Arial, sans-serif; background: #1C0F0A; color: white; padding: 20px; }
+        .card { background: #2C1810; padding: 20px; border-radius: 12px; border: 1px solid #D6AD70; margin-bottom: 20px; }
+        input, button { padding: 10px; margin-top: 10px; border-radius: 8px; border: none; width: 100%; max-width: 300px; display: block;}
+        button { background: #D6AD70; font-weight: bold; cursor: pointer; color: black; }
+        .danger { background: #B71C1C; color: white; }
+    </style>
+</head>
+<body>
+    <h1>☕ Let's Have Coffee - Admin</h1>
+    
+    <div class="card">
+        <h3>🚀 Application Launch</h3>
+        <p>Current Trial End Date: <br><b>{{ trial_end if trial_end else 'App Not Launched Yet' }}</b></p>
+        <form action="/admin/action/launch" method="POST">
+            <button class="danger" type="submit">Start 30-Day Free Trial For All Users</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h3>⚙️ Global Parameters</h3>
+        <form action="/admin/action/update_params" method="POST">
+            <label>Radar Search Radius (km):</label>
+            <input type="text" name="radar_radius" value="{{ radar_radius }}">
+            <label>Premium Upgrade Price (PHP):</label>
+            <input type="text" name="premium_price" value="{{ premium_price }}">
+            <button type="submit">Save Parameters</button>
+        </form>
+    </div>
+    
+    <a href="/admin/logout" style="color: #D6AD70; text-decoration: none; font-weight: bold;">Log Out</a>
+</body>
+</html>
+"""
+
+LOGIN_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Admin Login</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body{background:#1C0F0A; color:white; font-family: Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0;}
+        .login-box { background: #2C1810; padding: 30px; border-radius: 12px; border: 1px solid #D6AD70; text-align: center; }
+        input, button { padding: 12px; margin-top: 15px; border-radius: 8px; border: none; width: 90%; }
+        button { background: #D6AD70; font-weight: bold; cursor: pointer; color: black;}
+    </style>
+</head>
+<body>
+    <div class="login-box">
+        <h2>Admin Login</h2>
+        <form action="/admin/login" method="POST">
+            <input type="password" name="password" placeholder="Enter Master Password" required>
+            <button type="submit">Access Portal</button>
+        </form>
+    </div>
+</body>
+</html>
+"""
+
+@app.route('/admin', methods=['GET'])
+def admin_portal():
+    if not session.get('is_admin'):
+        return redirect(url_for('admin_login'))
+    
+    conn = get_db_connection()
+    conn.execute('CREATE TABLE IF NOT EXISTS global_config (key TEXT UNIQUE, value TEXT)')
+    rows = conn.execute('SELECT * FROM global_config').fetchall()
+    config = {r['key']: r['value'] for r in rows}
+    conn.close()
+    
+    return render_template_string(ADMIN_DASHBOARD_HTML, 
+                                  trial_end=config.get('trial_end'),
+                                  radar_radius=config.get('radar_radius', '1.2'),
+                                  premium_price=config.get('premium_price', '499'))
+
+@app.route('/admin/login', methods=['GET', 'POST'])
+def admin_login():
+    if request.method == 'POST':
+        # Change 'mastercoffee2026' to whatever password you want to use
+        if request.form.get('password') == 'mastercoffee2026': 
+            session['is_admin'] = True
+            return redirect(url_for('admin_portal'))
+        return "Invalid Password", 401
+    return render_template_string(LOGIN_HTML)
+
+@app.route('/admin/action/launch', methods=['POST'])
+def admin_action_launch():
+    if not session.get('is_admin'): return "Unauthorized", 401
+    conn = get_db_connection()
+    future_date = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+    conn.execute('INSERT OR REPLACE INTO global_config (key, value) VALUES (?, ?)', ('trial_end', future_date))
+    conn.commit()
+    conn.close()
+    return redirect(url_for('admin_portal'))
+
+@app.route('/admin/action/update_params', methods=['POST'])
+def admin_action_update_params():
+    if not session.get('is_admin'): return "Unauthorized", 401
+    radar = request.form.get('radar_radius')
+    price = request.form.get('premium_price')
+    conn = get_db_connection()
+    conn.execute('INSERT OR REPLACE INTO global_config (key, value) VALUES (?, ?)', ('radar_radius', radar))
+    conn.execute('INSERT OR REPLACE INTO global_config (key, value) VALUES (?, ?)', ('premium_price', price))
+    conn.commit()
+    conn.close()
+    return redirect(url_for('admin_portal'))
+
+@app.route('/admin/logout')
+def admin_logout():
+    session.pop('is_admin', None)
+    return redirect(url_for('admin_login'))
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
