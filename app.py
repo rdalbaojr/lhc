@@ -680,7 +680,35 @@ def delete_private_moment(moment_id):
 
     return jsonify({"status": "success", "message": "Secret moment deleted successfully!"}), 200
 
+@app.route('/unread_count/<int:user_id>', methods=['GET'])
+def get_unread_count(user_id):
+    conn = get_db_connection()
+    # Check if is_read column exists; if not, add it dynamically
+    try:
+        conn.execute("ALTER TABLE messages ADD COLUMN is_read INTEGER DEFAULT 0")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
 
+    cursor = conn.cursor()
+    row = cursor.execute(
+        "SELECT COUNT(*) as unread FROM messages WHERE to_user_id = ? AND is_read = 0",
+        (user_id,)
+    ).fetchone()
+    conn.close()
+
+    return jsonify({"status": "success", "unread": row['unread'] if row else 0}), 200
+
+@app.route('/mark_read/<int:user_id>/<int:sender_id>', methods=['POST'])
+def mark_read(user_id, sender_id):
+    conn = get_db_connection()
+    conn.execute(
+        "UPDATE messages SET is_read = 1 WHERE to_user_id = ? AND from_user_id = ?",
+        (user_id, sender_id)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "success"}), 200
 @app.route('/get_messages/<int:user1_id>/<int:user2_id>', methods=['GET'])
 def get_messages(user1_id, user2_id):
     conn = get_db_connection()
