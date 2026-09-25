@@ -316,16 +316,25 @@ def request_otp():
         return jsonify({"status": "success", "message": "OTP Sent (Fallback)!"}), 200
 
     try:
+        # Correctly defined headers and payload
+        headers = {
+            "accept": "application/json",
+            "api-key": BREVO_API_KEY,
+            "content-type": "application/json"
+        }
+        payload = {
+            "sender": {"email": SENDER_EMAIL, "name": "Let's Have Coffee"},
+            "to": [{"email": email}],
+            "subject": "Your LHC Login Code",
+            "htmlContent": f"<h2>Your login code is: {code}</h2><p>This code expires in 5 minutes.</p>"
+        }
+
+        # Added timeout=8 so Brevo can never freeze your server for more than 8 seconds
         response = requests.post(
             "https://api.brevo.com/v3/smtp/email",
-            headers={"api-key": BREVO_API_KEY, "Content-Type": "application/json"},
-            json={
-                "sender": {"name": "Let's Have Coffee", "email": SENDER_EMAIL},
-                "to": [{"email": email}],
-                "subject": "Your LHC Login Code ☕",
-                "textContent": f"Your Let's Have Coffee login code is: {code}\n\nIt expires in 5 minutes. ☕"
-            },
-            timeout=10
+            headers=headers,
+            json=payload,
+            timeout=8
         )
         if response.status_code in [200, 201]:
             return jsonify({"status": "success", "message": "OTP Sent to your Inbox!"}), 200
@@ -333,7 +342,7 @@ def request_otp():
             print(f"[OTP LOG FALLBACK] Email: {email} | Code: {code}")
             return jsonify({"status": "success", "message": "OTP Sent (Fallback)!"}), 200
     except Exception as e:
-        print(f"[OTP LOG FALLBACK] Email: {email} | Code: {code}")
+        print(f"[OTP LOG FALLBACK] Email: {email} | Code: {code} | Error: {e}")
         return jsonify({"status": "success", "message": "OTP Sent (Fallback)!"}), 200
 
 @app.route('/verify_otp', methods=['POST'])
@@ -557,6 +566,7 @@ def recover_account():
         return jsonify({"status": "error", "message": "Invalid request type"}), 400
     finally:
         conn.close()
+
 @app.route('/api/auto_upload_apk', methods=['POST'])
 def auto_upload_apk():
     # 1. Check for your secret password in the request headers
@@ -579,6 +589,7 @@ def auto_upload_apk():
         return jsonify({"status": "success", "message": "APK updated instantly!"}), 200
         
     return jsonify({"error": "Invalid file type."}), 400
+
 @app.route('/feed', methods=['GET'])
 def get_feed():
     current_user_id = request.args.get('user_id', default=1, type=int)
@@ -1411,6 +1422,7 @@ def admin_action_update_params():
 def admin_logout():
     session.pop('is_admin', None)
     return redirect(url_for('admin_login'))
+
 @app.route('/admin/upload_apk', methods=['POST'])
 def admin_upload_apk():
     if not session.get('is_admin'): return "Unauthorized", 401
@@ -1429,5 +1441,6 @@ def admin_upload_apk():
         return redirect(url_for('admin_portal'))
         
     return "Invalid file type. Must be an .apk file.", 400
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
