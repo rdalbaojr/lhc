@@ -17,6 +17,14 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 # Add these specific Flask tools to your imports at the top
 from flask import Flask, jsonify, request, send_from_directory, session, redirect, url_for, render_template_string
+from flask import Flask, jsonify, request, send_from_directory, session, redirect, url_for, render_template_string
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer # NEW: The AI Brain
+
+app = Flask(__name__)
+# Initialize the AI once so it's ready for all chats
+ai_analyzer = SentimentIntensityAnalyzer()
+
+vaderSentiment==3.3.2
 
 app = Flask(__name__)
 app.secret_key = 'qZ822118@@' # Required for web login sessions
@@ -709,27 +717,51 @@ def mark_read(user_id, sender_id):
     conn.commit()
     conn.close()
     return jsonify({"status": "success"}), 200
-@app.route('/get_messages/<int:user1_id>/<int:user2_id>', methods=['GET'])
-def get_messages(user1_id, user2_id):
+@app.route('/get_messages/<int:user1>/<int:user2>', methods=['GET'])
+def get_messages(user1, user2):
     conn = get_db_connection()
-    rows = conn.execute('''
-        SELECT from_user_id, to_user_id, content, timestamp 
+    cursor = conn.cursor()
+    
+    # Fetch the chat history
+    rows = cursor.execute('''
+        SELECT from_user_id, content 
         FROM messages 
         WHERE (from_user_id = ? AND to_user_id = ?) 
            OR (from_user_id = ? AND to_user_id = ?)
         ORDER BY id ASC
-    ''', (user1_id, user2_id, user2_id, user1_id)).fetchall()
+    ''', (user1, user2, user2, user1)).fetchall()
     conn.close()
 
-    messages = []
-    for r in rows:
-        messages.append({
-            "sender": r['from_user_id'],
-            "text": r['content'],
-            "timestamp": r['timestamp']
-        })
-    return jsonify({"status": "success", "messages": messages}), 200
+    messages = [{"sender": r['from_user_id'], "text": r['content']} for r in rows]
+    
+    # ==========================================
+    # AI SPARK METER CALCULATION
+    # ==========================================
+    spark_level = 0.15 # Baseline spark for just matching (15%)
+    
+    for msg in messages:
+        text = msg['text']
+        # The AI scores the text from -1.0 (extremely negative) to 1.0 (extremely positive)
+        sentiment = ai_analyzer.polarity_scores(text)
+        vibe = sentiment['compound'] 
+        
+        if vibe > 0.3:
+            spark_level += 0.08  # High enthusiasm! ("I would love that!!") -> Spark goes UP
+        elif vibe > 0.0:
+            spark_level += 0.03  # Friendly/neutral ("Sounds good") -> Spark creeps up slightly
+        elif vibe < -0.1:
+            spark_level -= 0.10  # Negative/Rejecting ("No thanks", "Busy") -> Spark drops sharply
+        elif len(text.strip()) < 4:
+            spark_level -= 0.05  # DRY TEXTING PENALTY! ("k", "yea") -> Spark drains!
+            
+        # Ensure the meter never drops below 0% or exceeds 100%
+        spark_level = max(0.0, min(1.0, spark_level))
 
+    return jsonify({
+        "status": "success", 
+        "messages": messages, 
+        "spark_level": spark_level # We send the final calculated score to Flutter!
+    }), 200
 
 @app.route('/send_message', methods=['POST'])
 def send_message():
