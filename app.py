@@ -1272,7 +1272,12 @@ def terms():
 @app.route('/download-apk', methods=['GET'])
 def download_apk():
     try:
-        return send_from_directory(app.config['UPLOAD_FOLDER'], 'lhc.apk', as_attachment=True)
+        return send_from_directory(
+            app.config['UPLOAD_FOLDER'], 
+            'lhc.apk', 
+            as_attachment=True,
+            mimetype='application/vnd.android.package-archive'
+        )
     except FileNotFoundError:
         return "The APK file is currently being updated. Please check back later.", 404
 
