@@ -1267,10 +1267,15 @@ def admin_action_update_params():
     conn.close()
     return redirect(url_for('admin_portal'))
 
-@app.route('/admin/logout')
-def admin_logout():
-    session.pop('is_admin', None)
-    return redirect(url_for('admin_login'))
+@app.route('/admin/login', methods=['GET', 'POST'])
+def admin_login():
+    if request.method == 'POST':
+        # THIS LINE CONTROLS THE PASSWORD
+        if request.form.get('password') == 'mastercoffee2026': 
+            session['is_admin'] = True
+            return redirect(url_for('admin_portal'))
+        return "Invalid Password", 401
+    return render_template_string(LOGIN_HTML)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
