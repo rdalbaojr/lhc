@@ -24,8 +24,6 @@ app = Flask(__name__)
 # Initialize the AI once so it's ready for all chats
 ai_analyzer = SentimentIntensityAnalyzer()
 
-vaderSentiment==3.3.2
-
 app = Flask(__name__)
 app.secret_key = 'qZ822118@@' # Required for web login sessions
 app = Flask(__name__)
