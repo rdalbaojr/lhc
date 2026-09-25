@@ -26,29 +26,24 @@ app.secret_key = 'qZ822118@@'
 # 3. Initialize the AI Brain
 ai_analyzer = SentimentIntensityAnalyzer()
 
-# 4. Configure Upload Folder
 # ==========================================
 # PERSISTENT STORAGE SETUP
 # ==========================================
-# If Render's persistent disk exists, use it. Otherwise, use the local folder (for testing on your laptop).
 if os.path.exists('/var/data'):
     BASE_DIR = '/var/data'
 else:
     BASE_DIR = os.path.dirname(__file__)
 
-# 1. Configure Permanent Upload Folder
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-# 2. Configure Permanent Database Path
 DB_PATH = os.path.join(BASE_DIR, 'coffee_sparks.db')
 
 def get_db_connection():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
-
 
 def haversine_distance(lat1, lon1, lat2, lon2):
     if None in (lat1, lon1, lat2, lon2):
@@ -60,7 +55,6 @@ def haversine_distance(lat1, lon1, lat2, lon2):
         math.cos(math.radians(lat2)) * math.sin(d_lon / 2) ** 2
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return R * c
-
 
 def setup_database():
     conn = get_db_connection()
@@ -88,7 +82,6 @@ def setup_database():
         )
     ''')
 
-    # ADDED 'last_active' to migrations for the Online Status feature!
     migration_cols = [
         ('caffeine_status', "TEXT DEFAULT 'Craving an iced latte ☕'"),
         ('audio_intro', 'TEXT'),
@@ -101,7 +94,7 @@ def setup_database():
         ('sq_food', 'TEXT'),
         ('sq_phone', 'TEXT'),
         ('sq_date', 'TEXT'),
-        ('last_active', 'TEXT') # <-- NEW COLUMN FOR ONLINE STATUS
+        ('last_active', 'TEXT')
     ]
     for col, col_type in migration_cols:
         try:
@@ -156,7 +149,7 @@ def setup_database():
         )
     ''')
 
-    # 5. Private Moments (Secret Brews) Table
+    # 5. Private Moments Table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS private_moments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -216,7 +209,7 @@ def setup_database():
         )
     ''')
 
-    # 10. Dating Preferences Columns to Users Table
+    # 10. Dating Preferences
     pref_cols = [
         ('pref_age_min', 'INTEGER DEFAULT 18'),
         ('pref_age_max', 'INTEGER DEFAULT 85'),
@@ -231,7 +224,8 @@ def setup_database():
             cursor.execute(f'ALTER TABLE users ADD COLUMN {col} {col_type}')
         except sqlite3.OperationalError:
             pass
-# 11. Blocked Users Table (Google Play Compliance)
+
+    # 11. Blocked Users Table (Google Play)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS blocked_users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -242,7 +236,7 @@ def setup_database():
         )
     ''')
 
-    # 12. Reported Users Table (Google Play Compliance)
+    # 12. Reported Users Table (Google Play)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS reported_users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -255,72 +249,31 @@ def setup_database():
     conn.commit()
     conn.close()
 
-
 setup_database()
 
-# Put this route with your other endpoints
+# ==========================================
+# API ENDPOINTS
+# ==========================================
+
 AGORA_APP_ID = "c03d6118308348ba96a6b8a3d5484487"
 AGORA_APP_CERT = "280aa0b50d4144ef9ae2f096bb14be0b"
+
 @app.route('/get_agora_token', methods=['GET'])
 def get_agora_token():
     channel_name = request.args.get('channel_name')
     uid = request.args.get('uid', default=0, type=int)
-    
     if not channel_name:
         return jsonify({"error": "channel_name is required"}), 400
-
-    # Role 1 is Broadcaster (allows sending and receiving video)
     role = 1 
-    # Token valid for 2 hours (7200 seconds)
     privilege_expired_ts = int(time.time()) + 7200
-
     token = RtcTokenBuilder.buildTokenWithUid(
-        AGORA_APP_ID, 
-        AGORA_APP_CERT, 
-        channel_name, 
-        uid, 
-        role, 
-        privilege_expired_ts
+        AGORA_APP_ID, AGORA_APP_CERT, channel_name, uid, role, privilege_expired_ts
     )
-    
     return jsonify({"status": "success", "token": token, "channel_name": channel_name}), 200
-
-@app.route('/update_preferences', methods=['POST'])
-def update_preferences():
-    data = request.get_json(force=True, silent=True) or {}
-    user_id = data.get('user_id')
-    
-    if not user_id:
-        return jsonify({"status": "error", "message": "Missing user ID"}), 400
-
-    age_min = data.get('age_min', 18)
-    age_max = data.get('age_max', 85)
-    genders = ",".join(data.get('genders', []))
-    builds = ",".join(data.get('builds', []))
-    habits = ",".join(data.get('habits', []))
-    beliefs = ",".join(data.get('beliefs', []))
-    backgrounds = ",".join(data.get('backgrounds', []))
-
-    conn = get_db_connection()
-    try:
-        conn.execute('''
-            UPDATE users SET
-            pref_age_min = ?, pref_age_max = ?, pref_genders = ?,
-            pref_builds = ?, pref_habits = ?, pref_beliefs = ?, pref_backgrounds = ?
-            WHERE id = ?
-        ''', (age_min, age_max, genders, builds, habits, beliefs, backgrounds, user_id))
-        conn.commit()
-        return jsonify({"status": "success", "message": "Preferences updated!"}), 200
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-    finally:
-        conn.close()
-
 
 @app.route('/ping', methods=['GET'])
 def ping():
     return jsonify({"status": "success", "message": "Coffee Sparks server is awake!"})
-
 
 @app.route('/request_otp', methods=['POST'])
 def request_otp():
@@ -341,154 +294,20 @@ def request_otp():
         ''', (email, code, expires_at_str))
         conn.commit()
     except Exception as e:
-        conn.close()
         return jsonify({"status": "error", "message": f"Database error: {str(e)}"}), 500
     finally:
         conn.close()
-# ==========================================
-# PUBLIC LANDING PAGE & COMPLIANCE
-# ==========================================
 
-LANDING_PAGE_HTML = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Let's Have Coffee | Meet, Match & Brew</title>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #1C0F0A; color: white; margin: 0; padding: 0; line-height: 1.6; }
-        .hero { text-align: center; padding: 80px 20px; background: linear-gradient(180deg, #2C1810 0%, #1C0F0A 100%); border-bottom: 1px solid #3A2520; }
-        .hero h1 { color: #D6AD70; font-size: 3rem; margin-bottom: 10px; }
-        .hero p { font-size: 1.2rem; color: #CCC; max-width: 600px; margin: 0 auto 30px auto; }
-        .btn-download { display: inline-block; background: #D6AD70; color: black; padding: 15px 30px; font-size: 1.2rem; font-weight: bold; text-decoration: none; border-radius: 30px; box-shadow: 0 4px 15px rgba(214, 173, 112, 0.3); transition: transform 0.2s; }
-        .btn-download:hover { transform: translateY(-2px); }
-        .section { max-width: 1000px; margin: 0 auto; padding: 60px 20px; }
-        .section h2 { color: #D6AD70; text-align: center; font-size: 2rem; margin-bottom: 40px; }
-        .features { display: flex; flex-wrap: wrap; gap: 30px; justify-content: center; }
-        .feature-card { background: #2C1810; padding: 30px; border-radius: 16px; flex: 1; min-width: 250px; text-align: center; border: 1px solid #3A2520; }
-        .feature-card h3 { color: white; margin-top: 0; }
-        .faq { max-width: 700px; margin: 0 auto; background: #2C1810; padding: 30px; border-radius: 16px; border: 1px solid #3A2520; }
-        .faq h4 { color: #D6AD70; margin-bottom: 5px; }
-        .faq p { color: #AAA; margin-top: 0; margin-bottom: 20px; }
-        .footer { text-align: center; padding: 40px 20px; border-top: 1px solid #3A2520; margin-top: 40px; font-size: 0.9rem; color: #888; }
-        .footer a { color: #D6AD70; text-decoration: none; margin: 0 10px; }
-    </style>
-</head>
-<body>
-
-    <div class="hero">
-        <h1>Let's Have Coffee ☕</h1>
-        <p>Skip the endless swiping. Match with local coffee lovers, vibe check with our AI Spark Meter, and meet up for a real connection.</p>
-        <a href="/download-apk" class="btn-download">Download APK for Android</a>
-    </div>
-
-    <div class="section">
-        <h2>Why Join The Club?</h2>
-        <div class="features">
-            <div class="feature-card">
-                <h3>⚡ AI Spark Meter</h3>
-                <p>Our intelligent chat meter physically rises and falls based on the vibe of your conversation. No more guessing if they are interested.</p>
-            </div>
-            <div class="feature-card">
-                <h3>📍 Local Matches</h3>
-                <p>Filter connections by your favorite local coffee shops. Match with people who already love your daily spot.</p>
-            </div>
-            <div class="feature-card">
-                <h3>🛡️ Verified Safe</h3>
-                <p>Strict 18+ entry, optional government ID KYC verification, and built-in video dating to ensure the person you meet is real.</p>
-            </div>
-        </div>
-    </div>
-
-    <div class="section">
-        <h2>Help & FAQ</h2>
-        <div class="faq">
-            <h4>How do I install the APK?</h4>
-            <p>Download the file using the button above. Open your phone's Settings > Security, and enable "Install from Unknown Sources", then tap the downloaded file.</p>
-            
-            <h4>Is the app free to use?</h4>
-            <p>Yes! Matching and chatting are completely free. Premium features like unlimited Virtual Video Dates are available for a small upgrade.</p>
-            
-            <h4>How do I report a bad interaction?</h4>
-            <p>Tap the three-dot menu in the top right of any chat or profile to instantly report or block a user. Our admin team reviews all reports within 24 hours.</p>
-        </div>
-    </div>
-
-    <div class="footer">
-        <p>&copy; 2026 Let's Have Coffee. All rights reserved.</p>
-        <div>
-            <a href="/privacy">Privacy Policy</a> | 
-            <a href="/terms">Terms of Service</a> | 
-            <a href="mailto:support@letshavecoffee.com">Contact Support</a>
-        </div>
-    </div>
-
-</body>
-</html>
-"""
-
-PRIVACY_POLICY_HTML = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Privacy Policy | Let's Have Coffee</title>
-    <style>
-        body { font-family: Arial, sans-serif; background: #1C0F0A; color: #CCC; max-width: 800px; margin: 0 auto; padding: 40px 20px; line-height: 1.6; }
-        h1, h2 { color: #D6AD70; }
-        a { color: #D6AD70; text-decoration: none; }
-    </style>
-</head>
-<body>
-    <a href="/">&larr; Back to Home</a>
-    <h1>Privacy Policy</h1>
-    <p>Last updated: October 2026</p>
-    
-    <h2>1. Information We Collect</h2>
-    <p>We collect information you provide directly to us during registration, including your email, age (must be 18+), gender preferences, location data (when actively using the radar feature), and profile images.</p>
-    
-    <h2>2. User-Generated Content (UGC)</h2>
-    <p>Let's Have Coffee is a social platform. Messages, images, and public comments you post are stored securely on our servers. We maintain a zero-tolerance policy for objectionable content. Users can be blocked or reported directly within the app.</p>
-    
-    <h2>3. How We Use Your Data</h2>
-    <p>Your location data is used strictly to calculate distance to potential matches and is never shared with third parties. Your chat data is processed by our AI Spark Meter in real-time to generate match compatibility scores.</p>
-    
-    <h2>4. Data Deletion</h2>
-    <p>You may request full deletion of your account, photos, and chat history at any time by navigating to Settings > Delete Account within the app, or by contacting our support team.</p>
-</body>
-</html>
-"""
-
-@app.route('/', methods=['GET'])
-def index():
-    return render_template_string(LANDING_PAGE_HTML)
-
-@app.route('/privacy', methods=['GET'])
-def privacy():
-    return render_template_string(PRIVACY_POLICY_HTML)
-
-@app.route('/terms', methods=['GET'])
-def terms():
-    return "<h1>Terms of Service</h1><p>By using Let's Have Coffee, you confirm you are 18 years or older and agree to maintain a respectful, safe environment for all users.</p>"
-
-@app.route('/download-apk', methods=['GET'])
-def download_apk():
-    # This looks for 'lhc.apk' in your uploads folder and serves it to the user
-    try:
-        return send_from_directory(app.config['UPLOAD_FOLDER'], 'lhc.apk', as_attachment=True)
-    except FileNotFoundError:
-        return "The APK file is currently being updated. Please check back later.", 404
     BREVO_API_KEY = os.environ.get("BREVO_API_KEY")
     if not BREVO_API_KEY:
         render_secret_path = "/etc/secrets/brevo_key.txt"
         local_secret_path = "brevo_key.txt"
         target_path = render_secret_path if os.path.exists(render_secret_path) else local_secret_path
-
         try:
             with open(target_path, "r") as key_file:
                 BREVO_API_KEY = key_file.read().strip()
         except FileNotFoundError:
-            print("[Notice] Secret file 'brevo_key.txt' not found. Falling back to logs.")
+            print("[Notice] Secret file 'brevo_key.txt' not found.")
 
     SENDER_EMAIL = "contact@driveelite.ph"
 
@@ -499,10 +318,7 @@ def download_apk():
     try:
         response = requests.post(
             "https://api.brevo.com/v3/smtp/email",
-            headers={
-                "api-key": BREVO_API_KEY,
-                "Content-Type": "application/json"
-            },
+            headers={"api-key": BREVO_API_KEY, "Content-Type": "application/json"},
             json={
                 "sender": {"name": "Let's Have Coffee", "email": SENDER_EMAIL},
                 "to": [{"email": email}],
@@ -511,19 +327,14 @@ def download_apk():
             },
             timeout=10
         )
-
         if response.status_code in [200, 201]:
             return jsonify({"status": "success", "message": "OTP Sent to your Inbox!"}), 200
         else:
-            print(f"Brevo API error: {response.text}")
             print(f"[OTP LOG FALLBACK] Email: {email} | Code: {code}")
             return jsonify({"status": "success", "message": "OTP Sent (Fallback)!"}), 200
-
     except Exception as e:
-        print(f"API request failed: {str(e)}")
         print(f"[OTP LOG FALLBACK] Email: {email} | Code: {code}")
         return jsonify({"status": "success", "message": "OTP Sent (Fallback)!"}), 200
-
 
 @app.route('/verify_otp', methods=['POST'])
 def verify_otp():
@@ -553,7 +364,6 @@ def verify_otp():
     else:
         return jsonify({"status": "success", "is_new_user": True}), 200
 
-
 @app.route('/login', methods=['POST'])
 def login():
     data = request.get_json(force=True, silent=True) or {}
@@ -577,7 +387,6 @@ def login():
     else:
         conn.close()
         return jsonify({"status": "error", "message": "Invalid email or password"}), 401
-
 
 @app.route('/register', methods=['POST'])
 def register():
@@ -629,6 +438,35 @@ def register():
         if conn:
             conn.close()
 
+@app.route('/update_preferences', methods=['POST'])
+def update_preferences():
+    data = request.get_json(force=True, silent=True) or {}
+    user_id = data.get('user_id')
+    if not user_id:
+        return jsonify({"status": "error", "message": "Missing user ID"}), 400
+
+    age_min = data.get('age_min', 18)
+    age_max = data.get('age_max', 85)
+    genders = ",".join(data.get('genders', []))
+    builds = ",".join(data.get('builds', []))
+    habits = ",".join(data.get('habits', []))
+    beliefs = ",".join(data.get('beliefs', []))
+    backgrounds = ",".join(data.get('backgrounds', []))
+
+    conn = get_db_connection()
+    try:
+        conn.execute('''
+            UPDATE users SET
+            pref_age_min = ?, pref_age_max = ?, pref_genders = ?,
+            pref_builds = ?, pref_habits = ?, pref_beliefs = ?, pref_backgrounds = ?
+            WHERE id = ?
+        ''', (age_min, age_max, genders, builds, habits, beliefs, backgrounds, user_id))
+        conn.commit()
+        return jsonify({"status": "success", "message": "Preferences updated!"}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        conn.close()
 
 @app.route('/submit_kyc', methods=['POST'])
 def submit_kyc():
@@ -658,12 +496,10 @@ def submit_kyc():
     finally:
         conn.close()
 
-
 @app.route('/recover_account', methods=['POST'])
 def recover_account():
     data = request.get_json(force=True, silent=True) or {}
     recovery_type = data.get('type')
-
     ans_teacher = data.get('sq_teacher')
     ans_dog = data.get('sq_dog')
     ans_food = data.get('sq_food')
@@ -671,32 +507,24 @@ def recover_account():
     ans_date = data.get('sq_date')
 
     conn = get_db_connection()
-
     try:
         if recovery_type == 'email':
             nickname = data.get('nickname', '').strip()
-
             query = "SELECT email FROM users WHERE nickname = ?"
             params = [nickname]
 
             if ans_teacher is not None:
-                query += " AND sq_teacher = ?"
-                params.append(ans_teacher.strip().lower())
+                query += " AND sq_teacher = ?"; params.append(ans_teacher.strip().lower())
             if ans_dog is not None:
-                query += " AND sq_dog = ?"
-                params.append(ans_dog.strip().lower())
+                query += " AND sq_dog = ?"; params.append(ans_dog.strip().lower())
             if ans_food is not None:
-                query += " AND sq_food = ?"
-                params.append(ans_food.strip().lower())
+                query += " AND sq_food = ?"; params.append(ans_food.strip().lower())
             if ans_phone is not None:
-                query += " AND sq_phone = ?"
-                params.append(ans_phone.strip().lower())
+                query += " AND sq_phone = ?"; params.append(ans_phone.strip().lower())
             if ans_date is not None:
-                query += " AND sq_date = ?"
-                params.append(ans_date.strip().lower())
+                query += " AND sq_date = ?"; params.append(ans_date.strip().lower())
 
             user = conn.execute(query, params).fetchone()
-
             if user:
                 return jsonify({"status": "success", "message": f"Your email is: {user['email']}"}), 200
             return jsonify({"status": "error", "message": "Answers do not match any records."}), 404
@@ -704,28 +532,21 @@ def recover_account():
         elif recovery_type == 'password':
             email = data.get('email', '').strip().lower()
             new_password = data.get('new_password', '').strip()
-
             query = "SELECT id FROM users WHERE email = ?"
             params = [email]
 
             if ans_teacher is not None:
-                query += " AND sq_teacher = ?"
-                params.append(ans_teacher.strip().lower())
+                query += " AND sq_teacher = ?"; params.append(ans_teacher.strip().lower())
             if ans_dog is not None:
-                query += " AND sq_dog = ?"
-                params.append(ans_dog.strip().lower())
+                query += " AND sq_dog = ?"; params.append(ans_dog.strip().lower())
             if ans_food is not None:
-                query += " AND sq_food = ?"
-                params.append(ans_food.strip().lower())
+                query += " AND sq_food = ?"; params.append(ans_food.strip().lower())
             if ans_phone is not None:
-                query += " AND sq_phone = ?"
-                params.append(ans_phone.strip().lower())
+                query += " AND sq_phone = ?"; params.append(ans_phone.strip().lower())
             if ans_date is not None:
-                query += " AND sq_date = ?"
-                params.append(ans_date.strip().lower())
+                query += " AND sq_date = ?"; params.append(ans_date.strip().lower())
 
             user = conn.execute(query, params).fetchone()
-
             if user:
                 hashed_pw = generate_password_hash(new_password)
                 conn.execute('UPDATE users SET password = ? WHERE id = ?', (hashed_pw, user['id']))
@@ -733,317 +554,9 @@ def recover_account():
                 return jsonify({"status": "success", "message": "Password successfully reset! You can now log in."}), 200
 
             return jsonify({"status": "error", "message": "Answers do not match our records for that email."}), 404
-
         return jsonify({"status": "error", "message": "Invalid request type"}), 400
     finally:
         conn.close()
-
-
-@app.route('/upload_private_moment', methods=['POST'])
-def upload_private_moment():
-    data = request.get_json(force=True, silent=True) or {}
-    user_id = data.get('user_id')
-    image_base64 = data.get('image_base64')
-    caption = data.get('caption', '')
-
-    if not user_id or not image_base64:
-        return jsonify({"status": "error", "message": "Missing user_id or image"}), 400
-
-    filename = secure_filename(f"moment_{user_id}_{int(time.time())}.jpg")
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-
-    try:
-        with open(filepath, "wb") as fh:
-            fh.write(base64.b64decode(image_base64))
-    except Exception as e:
-        return jsonify({"status": "error", "message": f"Error saving file: {e}"}), 500
-
-    conn = get_db_connection()
-    try:
-        conn.execute('INSERT INTO private_moments (user_id, image_base64, caption) VALUES (?, ?, ?)',
-                     (user_id, filename, caption))
-        conn.commit()
-        return jsonify({"status": "success", "message": "Private moment saved successfully!"}), 201
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-    finally:
-        conn.close()
-
-
-@app.route('/get_secret_moments/<int:viewer_id>/<int:target_id>', methods=['GET'])
-def get_secret_moments(viewer_id, target_id):
-    conn = get_db_connection()
-    rows = conn.execute('SELECT id, image_base64, caption, timestamp FROM private_moments WHERE user_id = ? ORDER BY id DESC', (target_id,)).fetchall()
-
-    moments = []
-    for r in rows:
-        moment_id = r['id']
-        filename = r['image_base64'] or ''
-        img_url = f"{request.host_url}uploads/{filename}" if filename else ""
-
-        unlocked = True
-        if viewer_id != target_id:
-            access = conn.execute('''
-                SELECT 1 FROM secret_access WHERE owner_id = ? AND viewer_id = ? AND moment_id = ?
-            ''', (target_id, viewer_id, moment_id)).fetchone()
-            unlocked = access is not None
-
-        moments.append({
-            "id": moment_id,
-            "image": img_url,
-            "caption": r['caption'] or "",
-            "unlocked": unlocked,
-            "timestamp": r['timestamp']
-        })
-
-    conn.close()
-    return jsonify({"status": "success", "moments": moments}), 200
-
-
-@app.route('/grant_secret_access', methods=['POST'])
-def grant_secret_access():
-    data = request.get_json(force=True, silent=True) or {}
-    owner_id = data.get('owner_id')
-    viewer_id = data.get('viewer_id')
-    moment_id = data.get('moment_id')
-
-    if not owner_id or not viewer_id or not moment_id:
-        return jsonify({"status": "error", "message": "Missing IDs"}), 400
-
-    conn = get_db_connection()
-    try:
-        conn.execute('''
-            INSERT OR IGNORE INTO secret_access (owner_id, viewer_id, moment_id)
-            VALUES (?, ?, ?)
-        ''', (owner_id, viewer_id, moment_id))
-        conn.commit()
-        return jsonify({"status": "success", "message": "Access granted!"}), 200
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-    finally:
-        conn.close()
-
-
-@app.route('/delete_private_moment/<int:moment_id>', methods=['DELETE'])
-def delete_private_moment(moment_id):
-    conn = get_db_connection()
-    row = conn.execute('SELECT image_base64 FROM private_moments WHERE id = ?', (moment_id,)).fetchone()
-
-    if not row:
-        conn.close()
-        return jsonify({"status": "error", "message": "Moment not found"}), 404
-
-    filename = row['image_base64']
-    if filename:
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        if os.path.exists(filepath):
-            try:
-                os.remove(filepath)
-            except Exception as e:
-                print(f"Error deleting file: {e}")
-
-    conn.execute('DELETE FROM private_moments WHERE id = ?', (moment_id,))
-    conn.commit()
-    conn.close()
-
-    return jsonify({"status": "success", "message": "Secret moment deleted successfully!"}), 200
-
-@app.route('/unread_count/<int:user_id>', methods=['GET'])
-def get_unread_count(user_id):
-    conn = get_db_connection()
-    # Check if is_read column exists; if not, add it dynamically
-    try:
-        conn.execute("ALTER TABLE messages ADD COLUMN is_read INTEGER DEFAULT 0")
-        conn.commit()
-    except sqlite3.OperationalError:
-        pass
-
-    cursor = conn.cursor()
-    row = cursor.execute(
-        "SELECT COUNT(*) as unread FROM messages WHERE to_user_id = ? AND is_read = 0",
-        (user_id,)
-    ).fetchone()
-    conn.close()
-
-    return jsonify({"status": "success", "unread": row['unread'] if row else 0}), 200
-
-@app.route('/mark_read/<int:user_id>/<int:sender_id>', methods=['POST'])
-def mark_read(user_id, sender_id):
-    conn = get_db_connection()
-    conn.execute(
-        "UPDATE messages SET is_read = 1 WHERE to_user_id = ? AND from_user_id = ?",
-        (user_id, sender_id)
-    )
-    conn.commit()
-    conn.close()
-    return jsonify({"status": "success"}), 200
-@app.route('/get_messages/<int:user1>/<int:user2>', methods=['GET'])
-def get_messages(user1, user2):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    # Fetch the chat history
-    rows = cursor.execute('''
-        SELECT from_user_id, content 
-        FROM messages 
-        WHERE (from_user_id = ? AND to_user_id = ?) 
-           OR (from_user_id = ? AND to_user_id = ?)
-        ORDER BY id ASC
-    ''', (user1, user2, user2, user1)).fetchall()
-    conn.close()
-
-    messages = [{"sender": r['from_user_id'], "text": r['content']} for r in rows]
-    
-    # ==========================================
-    # AI SPARK METER CALCULATION
-    # ==========================================
-    spark_level = 0.15 # Baseline spark for just matching (15%)
-    
-    for msg in messages:
-        text = msg['text']
-        # The AI scores the text from -1.0 (extremely negative) to 1.0 (extremely positive)
-        sentiment = ai_analyzer.polarity_scores(text)
-        vibe = sentiment['compound'] 
-        
-        if vibe > 0.3:
-            spark_level += 0.08  # High enthusiasm! ("I would love that!!") -> Spark goes UP
-        elif vibe > 0.0:
-            spark_level += 0.03  # Friendly/neutral ("Sounds good") -> Spark creeps up slightly
-        elif vibe < -0.1:
-            spark_level -= 0.10  # Negative/Rejecting ("No thanks", "Busy") -> Spark drops sharply
-        elif len(text.strip()) < 4:
-            spark_level -= 0.05  # DRY TEXTING PENALTY! ("k", "yea") -> Spark drains!
-            
-        # Ensure the meter never drops below 0% or exceeds 100%
-        spark_level = max(0.0, min(1.0, spark_level))
-
-    return jsonify({
-        "status": "success", 
-        "messages": messages, 
-        "spark_level": spark_level # We send the final calculated score to Flutter!
-    }), 200
-
-@app.route('/send_message', methods=['POST'])
-def send_message():
-    data = request.get_json(force=True, silent=True) or {}
-    from_id = data.get('from_user_id')
-    to_id = data.get('to_user_id')
-    content = data.get('content', '')
-
-    if not from_id or not to_id or not content:
-        return jsonify({"status": "error", "message": "Missing fields"}), 400
-
-    conn = get_db_connection()
-    try:
-        conn.execute('''
-            INSERT INTO messages (from_user_id, to_user_id, content)
-            VALUES (?, ?, ?)
-        ''', (from_id, to_id, content))
-        conn.commit()
-        return jsonify({"status": "success", "message": "Message sent!"}), 201
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-    finally:
-        conn.close()
-
-
-@app.route('/create_date_invite', methods=['POST'])
-def create_date_invite():
-    data = request.get_json(force=True, silent=True) or {}
-    from_user_id = data.get('from_user_id')
-    to_user_id = data.get('to_user_id')
-    cafe_name = data.get('cafe_name', 'Local Cafe')
-    meet_time = data.get('meet_time', 'Tomorrow morning')
-    message = data.get('message', '')
-
-    if not from_user_id or not to_user_id:
-        return jsonify({"status": "error", "message": "Missing sender or receiver IDs"}), 400
-
-    conn = get_db_connection()
-    try:
-        conn.execute('''
-            INSERT INTO date_invites (from_user_id, to_user_id, cafe_name, meet_time, message, status)
-            VALUES (?, ?, ?, ?, ?, 'Pending')
-        ''', (from_user_id, to_user_id, cafe_name, meet_time, message))
-        
-        # 1. You like them
-        conn.execute('''
-            INSERT OR IGNORE INTO user_likes (from_user_id, to_user_id)
-            VALUES (?, ?)
-        ''', (from_user_id, to_user_id))
-        
-        # 2. SEAMLESS TESTING: They instantly like you back!
-        conn.execute('''
-            INSERT OR IGNORE INTO user_likes (from_user_id, to_user_id)
-            VALUES (?, ?)
-        ''', (to_user_id, from_user_id))
-        
-        conn.commit()
-        return jsonify({"status": "success", "message": "Spark sent & instantly matched!"}), 201
-        
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-    finally:
-        conn.close()
-
-
-@app.route('/post_comment', methods=['POST'])
-def post_comment():
-    data = request.get_json(force=True, silent=True) or {}
-    profile_id = data.get('profile_user_id')
-    commenter_id = data.get('commenter_user_id')
-    commenter_name = data.get('commenter_name', 'Coffee Passersby')
-    commenter_image = data.get('commenter_image', '')
-    text = data.get('comment', '').strip()
-
-    if not profile_id or not commenter_id or not text:
-        return jsonify({"status": "error", "message": "Missing fields"}), 400
-
-    lower_text = text.lower()
-    negative_words = ['ugly', 'hate', 'bad', 'horrible', 'stupid', 'loser', 'trash', 'scam']
-    if any(word in lower_text for word in negative_words):
-        return jsonify({
-            "status": "error",
-            "message": "Public wall keeps good vibes only! Save the spicy banter for private chat rooms ☕"
-        }), 400
-
-    conn = get_db_connection()
-    try:
-        conn.execute('''
-            INSERT INTO profile_comments (profile_user_id, commenter_user_id, commenter_name, commenter_image, comment)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (profile_id, commenter_id, commenter_name, commenter_image, text))
-        conn.commit()
-        return jsonify({"status": "success", "message": "Comment posted!"}), 201
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-    finally:
-        conn.close()
-
-
-@app.route('/get_comments/<int:profile_user_id>', methods=['GET'])
-def get_comments(profile_user_id):
-    conn = get_db_connection()
-    rows = conn.execute('''
-        SELECT id, commenter_user_id, commenter_name, commenter_image, comment, timestamp
-        FROM profile_comments
-        WHERE profile_user_id = ?
-        ORDER BY id DESC
-    ''', (profile_user_id,)).fetchall()
-    conn.close()
-
-    comments = []
-    for r in rows:
-        comments.append({
-            "id": r['id'],
-            "commenter_id": r['commenter_user_id'],
-            "name": r['commenter_name'],
-            "image": r['commenter_image'],
-            "comment": r['comment'],
-            "timestamp": r['timestamp']
-        })
-    return jsonify({"status": "success", "comments": comments}), 200
-
 
 @app.route('/feed', methods=['GET'])
 def get_feed():
@@ -1056,14 +569,11 @@ def get_feed():
         conn.execute('UPDATE users SET last_lat = ?, last_lng = ? WHERE id = ?', (lat, lng, current_user_id))
         conn.commit()
 
-    # Pull user's preferences if they exist
     prefs = conn.execute('SELECT pref_age_min, pref_age_max, pref_genders, coffee_shop FROM users WHERE id = ?', (current_user_id,)).fetchone()
-    
     age_min = prefs['pref_age_min'] if prefs and prefs['pref_age_min'] else 18
     age_max = prefs['pref_age_max'] if prefs and prefs['pref_age_max'] else 85
     user_shop = prefs['coffee_shop'] if prefs and prefs['coffee_shop'] else ""
 
-    # Relaxed query: Added last_active to query
     query = '''
         SELECT id, nickname, age, gender, coffee_shop, bio, profile_image, caffeine_status, last_lat, last_lng, last_active
         FROM users 
@@ -1090,7 +600,6 @@ def get_feed():
         is_coffee_match = user_shop and u['coffee_shop'] and user_shop.strip().lower() == u['coffee_shop'].strip().lower()
         tag_title = "☕ Shared Coffee Vibe" if is_coffee_match else (u['coffee_shop'] or "Local Cafe")
 
-        # --- ONLINE STATUS CALCULATION ---
         last_active_str = u['last_active']
         is_online = False
         if last_active_str:
@@ -1101,7 +610,6 @@ def get_feed():
             except Exception:
                 pass
 
-        # Fuzz coordinates for safety! (3 decimals is a ~100m radius)
         safe_lat = round(u_lat, 3) if u_lat is not None else None
         safe_lng = round(u_lng, 3) if u_lng is not None else None
 
@@ -1120,34 +628,24 @@ def get_feed():
         })
         
     feed_list.sort(key=lambda x: x['distance_km'])
-    
-    return jsonify({
-        "status": "success",
-        "feed": feed_list
-    }), 200
-
+    return jsonify({"status": "success", "feed": feed_list}), 200
 
 @app.route('/uploads/<filename>')
 def serve_file(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
-
 @app.route('/heartbeat', methods=['POST'])
 def heartbeat():
     data = request.json
     user_id = data.get('user_id')
-    
     if user_id:
-        # Save exact formatted string so it is easy to parse later
         now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
         conn = get_db_connection()
         conn.execute('UPDATE users SET last_active = ? WHERE id = ?', (now_str, user_id))
         conn.commit()
         conn.close()
         return jsonify({"status": "success"}), 200
-        
     return jsonify({"error": "Missing user_id"}), 400
-
 
 @app.route('/user_profile/<int:user_id>', methods=['GET'])
 def get_user_profile(user_id):
@@ -1161,7 +659,6 @@ def get_user_profile(user_id):
     avatar = user['profile_image']
     img_url = f"{request.host_url}uploads/{avatar}" if avatar else "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=800&q=80"
 
-    # Profile online status logic
     last_active_str = user['last_active'] if 'last_active' in user.keys() else None
     is_online = False
     if last_active_str:
@@ -1188,7 +685,6 @@ def get_user_profile(user_id):
         }
     }), 200
 
-
 @app.route('/update_avatar', methods=['POST'])
 def update_avatar():
     data = request.get_json(force=True, silent=True) or {}
@@ -1214,7 +710,6 @@ def update_avatar():
 
     return jsonify({"status": "success", "avatar_url": f"{request.host_url}uploads/{filename}"}), 200
 
-
 @app.route('/user_stats/<int:user_id>', methods=['GET'])
 def get_user_stats(user_id):
     conn = get_db_connection()
@@ -1234,7 +729,6 @@ def get_user_stats(user_id):
     conn.close()
 
     return jsonify({"status": "success", "match_brew": match_count, "similar_vibes": vibes_count, "local_likes": likes_count}), 200
-
 
 @app.route('/insight_details/<category>/<int:user_id>', methods=['GET'])
 def get_insight_details(category, user_id):
@@ -1279,6 +773,286 @@ def get_insight_details(category, user_id):
 
     return jsonify({"status": "success", "title": title, "users": users_list}), 200
 
+@app.route('/upload_private_moment', methods=['POST'])
+def upload_private_moment():
+    data = request.get_json(force=True, silent=True) or {}
+    user_id = data.get('user_id')
+    image_base64 = data.get('image_base64')
+    caption = data.get('caption', '')
+
+    if not user_id or not image_base64:
+        return jsonify({"status": "error", "message": "Missing user_id or image"}), 400
+
+    filename = secure_filename(f"moment_{user_id}_{int(time.time())}.jpg")
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+
+    try:
+        with open(filepath, "wb") as fh:
+            fh.write(base64.b64decode(image_base64))
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Error saving file: {e}"}), 500
+
+    conn = get_db_connection()
+    try:
+        conn.execute('INSERT INTO private_moments (user_id, image_base64, caption) VALUES (?, ?, ?)',
+                     (user_id, filename, caption))
+        conn.commit()
+        return jsonify({"status": "success", "message": "Private moment saved successfully!"}), 201
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        conn.close()
+
+@app.route('/get_secret_moments/<int:viewer_id>/<int:target_id>', methods=['GET'])
+def get_secret_moments(viewer_id, target_id):
+    conn = get_db_connection()
+    rows = conn.execute('SELECT id, image_base64, caption, timestamp FROM private_moments WHERE user_id = ? ORDER BY id DESC', (target_id,)).fetchall()
+
+    moments = []
+    for r in rows:
+        moment_id = r['id']
+        filename = r['image_base64'] or ''
+        img_url = f"{request.host_url}uploads/{filename}" if filename else ""
+
+        unlocked = True
+        if viewer_id != target_id:
+            access = conn.execute('''
+                SELECT 1 FROM secret_access WHERE owner_id = ? AND viewer_id = ? AND moment_id = ?
+            ''', (target_id, viewer_id, moment_id)).fetchone()
+            unlocked = access is not None
+
+        moments.append({
+            "id": moment_id,
+            "image": img_url,
+            "caption": r['caption'] or "",
+            "unlocked": unlocked,
+            "timestamp": r['timestamp']
+        })
+
+    conn.close()
+    return jsonify({"status": "success", "moments": moments}), 200
+
+@app.route('/grant_secret_access', methods=['POST'])
+def grant_secret_access():
+    data = request.get_json(force=True, silent=True) or {}
+    owner_id = data.get('owner_id')
+    viewer_id = data.get('viewer_id')
+    moment_id = data.get('moment_id')
+
+    if not owner_id or not viewer_id or not moment_id:
+        return jsonify({"status": "error", "message": "Missing IDs"}), 400
+
+    conn = get_db_connection()
+    try:
+        conn.execute('''
+            INSERT OR IGNORE INTO secret_access (owner_id, viewer_id, moment_id)
+            VALUES (?, ?, ?)
+        ''', (owner_id, viewer_id, moment_id))
+        conn.commit()
+        return jsonify({"status": "success", "message": "Access granted!"}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        conn.close()
+
+@app.route('/delete_private_moment/<int:moment_id>', methods=['DELETE'])
+def delete_private_moment(moment_id):
+    conn = get_db_connection()
+    row = conn.execute('SELECT image_base64 FROM private_moments WHERE id = ?', (moment_id,)).fetchone()
+
+    if not row:
+        conn.close()
+        return jsonify({"status": "error", "message": "Moment not found"}), 404
+
+    filename = row['image_base64']
+    if filename:
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        if os.path.exists(filepath):
+            try:
+                os.remove(filepath)
+            except Exception as e:
+                print(f"Error deleting file: {e}")
+
+    conn.execute('DELETE FROM private_moments WHERE id = ?', (moment_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "success", "message": "Secret moment deleted successfully!"}), 200
+
+@app.route('/unread_count/<int:user_id>', methods=['GET'])
+def get_unread_count(user_id):
+    conn = get_db_connection()
+    try:
+        conn.execute("ALTER TABLE messages ADD COLUMN is_read INTEGER DEFAULT 0")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
+    cursor = conn.cursor()
+    row = cursor.execute(
+        "SELECT COUNT(*) as unread FROM messages WHERE to_user_id = ? AND is_read = 0",
+        (user_id,)
+    ).fetchone()
+    conn.close()
+    return jsonify({"status": "success", "unread": row['unread'] if row else 0}), 200
+
+@app.route('/mark_read/<int:user_id>/<int:sender_id>', methods=['POST'])
+def mark_read(user_id, sender_id):
+    conn = get_db_connection()
+    conn.execute(
+        "UPDATE messages SET is_read = 1 WHERE to_user_id = ? AND from_user_id = ?",
+        (user_id, sender_id)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "success"}), 200
+
+@app.route('/get_messages/<int:user1>/<int:user2>', methods=['GET'])
+def get_messages(user1, user2):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    rows = cursor.execute('''
+        SELECT from_user_id, content 
+        FROM messages 
+        WHERE (from_user_id = ? AND to_user_id = ?) 
+           OR (from_user_id = ? AND to_user_id = ?)
+        ORDER BY id ASC
+    ''', (user1, user2, user2, user1)).fetchall()
+    conn.close()
+
+    messages = [{"sender": r['from_user_id'], "text": r['content']} for r in rows]
+    
+    spark_level = 0.15 
+    for msg in messages:
+        text = msg['text']
+        sentiment = ai_analyzer.polarity_scores(text)
+        vibe = sentiment['compound'] 
+        
+        if vibe > 0.3:
+            spark_level += 0.08
+        elif vibe > 0.0:
+            spark_level += 0.03
+        elif vibe < -0.1:
+            spark_level -= 0.10
+        elif len(text.strip()) < 4:
+            spark_level -= 0.05
+            
+        spark_level = max(0.0, min(1.0, spark_level))
+
+    return jsonify({
+        "status": "success", 
+        "messages": messages, 
+        "spark_level": spark_level
+    }), 200
+
+@app.route('/send_message', methods=['POST'])
+def send_message():
+    data = request.get_json(force=True, silent=True) or {}
+    from_id = data.get('from_user_id')
+    to_id = data.get('to_user_id')
+    content = data.get('content', '')
+
+    if not from_id or not to_id or not content:
+        return jsonify({"status": "error", "message": "Missing fields"}), 400
+
+    conn = get_db_connection()
+    try:
+        conn.execute('''
+            INSERT INTO messages (from_user_id, to_user_id, content)
+            VALUES (?, ?, ?)
+        ''', (from_id, to_id, content))
+        conn.commit()
+        return jsonify({"status": "success", "message": "Message sent!"}), 201
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        conn.close()
+
+@app.route('/create_date_invite', methods=['POST'])
+def create_date_invite():
+    data = request.get_json(force=True, silent=True) or {}
+    from_user_id = data.get('from_user_id')
+    to_user_id = data.get('to_user_id')
+    cafe_name = data.get('cafe_name', 'Local Cafe')
+    meet_time = data.get('meet_time', 'Tomorrow morning')
+    message = data.get('message', '')
+
+    if not from_user_id or not to_user_id:
+        return jsonify({"status": "error", "message": "Missing sender or receiver IDs"}), 400
+
+    conn = get_db_connection()
+    try:
+        conn.execute('''
+            INSERT INTO date_invites (from_user_id, to_user_id, cafe_name, meet_time, message, status)
+            VALUES (?, ?, ?, ?, ?, 'Pending')
+        ''', (from_user_id, to_user_id, cafe_name, meet_time, message))
+        
+        conn.execute('INSERT OR IGNORE INTO user_likes (from_user_id, to_user_id) VALUES (?, ?)', (from_user_id, to_user_id))
+        conn.execute('INSERT OR IGNORE INTO user_likes (from_user_id, to_user_id) VALUES (?, ?)', (to_user_id, from_user_id))
+        
+        conn.commit()
+        return jsonify({"status": "success", "message": "Spark sent & instantly matched!"}), 201
+        
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        conn.close()
+
+@app.route('/post_comment', methods=['POST'])
+def post_comment():
+    data = request.get_json(force=True, silent=True) or {}
+    profile_id = data.get('profile_user_id')
+    commenter_id = data.get('commenter_user_id')
+    commenter_name = data.get('commenter_name', 'Coffee Passersby')
+    commenter_image = data.get('commenter_image', '')
+    text = data.get('comment', '').strip()
+
+    if not profile_id or not commenter_id or not text:
+        return jsonify({"status": "error", "message": "Missing fields"}), 400
+
+    lower_text = text.lower()
+    negative_words = ['ugly', 'hate', 'bad', 'horrible', 'stupid', 'loser', 'trash', 'scam']
+    if any(word in lower_text for word in negative_words):
+        return jsonify({
+            "status": "error",
+            "message": "Public wall keeps good vibes only! Save the spicy banter for private chat rooms ☕"
+        }), 400
+
+    conn = get_db_connection()
+    try:
+        conn.execute('''
+            INSERT INTO profile_comments (profile_user_id, commenter_user_id, commenter_name, commenter_image, comment)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (profile_id, commenter_id, commenter_name, commenter_image, text))
+        conn.commit()
+        return jsonify({"status": "success", "message": "Comment posted!"}), 201
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        conn.close()
+
+@app.route('/get_comments/<int:profile_user_id>', methods=['GET'])
+def get_comments(profile_user_id):
+    conn = get_db_connection()
+    rows = conn.execute('''
+        SELECT id, commenter_user_id, commenter_name, commenter_image, comment, timestamp
+        FROM profile_comments
+        WHERE profile_user_id = ?
+        ORDER BY id DESC
+    ''', (profile_user_id,)).fetchall()
+    conn.close()
+
+    comments = []
+    for r in rows:
+        comments.append({
+            "id": r['id'],
+            "commenter_id": r['commenter_user_id'],
+            "name": r['commenter_name'],
+            "image": r['commenter_image'],
+            "comment": r['comment'],
+            "timestamp": r['timestamp']
+        })
+    return jsonify({"status": "success", "comments": comments}), 200
 
 @app.route('/delete_user/<int:user_id>', methods=['DELETE'])
 def delete_user(user_id):
@@ -1296,7 +1070,6 @@ def delete_user(user_id):
     finally:
         conn.close()
 
-
 @app.route('/upgrade_premium', methods=['POST'])
 def upgrade_premium():
     data = request.get_json(force=True, silent=True) or {}
@@ -1313,6 +1086,175 @@ def upgrade_premium():
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         conn.close()
+
+
+# ==========================================
+# GOOGLE PLAY COMPLIANCE ROUTES
+# ==========================================
+@app.route('/block_user', methods=['POST'])
+def block_user():
+    data = request.get_json(force=True, silent=True) or {}
+    blocker_id = data.get('blocker_id')
+    blocked_id = data.get('blocked_id')
+
+    if not blocker_id or not blocked_id:
+        return jsonify({"status": "error", "message": "Missing IDs"}), 400
+
+    conn = get_db_connection()
+    try:
+        conn.execute('INSERT OR IGNORE INTO blocked_users (blocker_id, blocked_id) VALUES (?, ?)', (blocker_id, blocked_id))
+        conn.execute('DELETE FROM user_likes WHERE (from_user_id = ? AND to_user_id = ?) OR (from_user_id = ? AND to_user_id = ?)', 
+                     (blocker_id, blocked_id, blocked_id, blocker_id))
+        conn.commit()
+        return jsonify({"status": "success", "message": "User blocked successfully."}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        conn.close()
+
+@app.route('/report_user', methods=['POST'])
+def report_user():
+    data = request.get_json(force=True, silent=True) or {}
+    reporter_id = data.get('reporter_id')
+    reported_id = data.get('reported_id')
+    reason = data.get('reason', 'Inappropriate behavior')
+
+    if not reporter_id or not reported_id:
+        return jsonify({"status": "error", "message": "Missing IDs"}), 400
+
+    conn = get_db_connection()
+    try:
+        conn.execute('INSERT INTO reported_users (reporter_id, reported_id, reason) VALUES (?, ?, ?)', (reporter_id, reported_id, reason))
+        conn.commit()
+        return jsonify({"status": "success", "message": "Report submitted to admin for review."}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        conn.close()
+
+
+# ==========================================
+# PUBLIC LANDING PAGE & COMPLIANCE
+# ==========================================
+
+LANDING_PAGE_HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Let's Have Coffee | Meet, Match & Brew</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #1C0F0A; color: white; margin: 0; padding: 0; line-height: 1.6; }
+        .hero { text-align: center; padding: 80px 20px; background: linear-gradient(180deg, #2C1810 0%, #1C0F0A 100%); border-bottom: 1px solid #3A2520; }
+        .hero h1 { color: #D6AD70; font-size: 3rem; margin-bottom: 10px; }
+        .hero p { font-size: 1.2rem; color: #CCC; max-width: 600px; margin: 0 auto 30px auto; }
+        .btn-download { display: inline-block; background: #D6AD70; color: black; padding: 15px 30px; font-size: 1.2rem; font-weight: bold; text-decoration: none; border-radius: 30px; box-shadow: 0 4px 15px rgba(214, 173, 112, 0.3); transition: transform 0.2s; }
+        .btn-download:hover { transform: translateY(-2px); }
+        .section { max-width: 1000px; margin: 0 auto; padding: 60px 20px; }
+        .section h2 { color: #D6AD70; text-align: center; font-size: 2rem; margin-bottom: 40px; }
+        .features { display: flex; flex-wrap: wrap; gap: 30px; justify-content: center; }
+        .feature-card { background: #2C1810; padding: 30px; border-radius: 16px; flex: 1; min-width: 250px; text-align: center; border: 1px solid #3A2520; }
+        .feature-card h3 { color: white; margin-top: 0; }
+        .faq { max-width: 700px; margin: 0 auto; background: #2C1810; padding: 30px; border-radius: 16px; border: 1px solid #3A2520; }
+        .faq h4 { color: #D6AD70; margin-bottom: 5px; }
+        .faq p { color: #AAA; margin-top: 0; margin-bottom: 20px; }
+        .footer { text-align: center; padding: 40px 20px; border-top: 1px solid #3A2520; margin-top: 40px; font-size: 0.9rem; color: #888; }
+        .footer a { color: #D6AD70; text-decoration: none; margin: 0 10px; }
+    </style>
+</head>
+<body>
+    <div class="hero">
+        <h1>Let's Have Coffee ☕</h1>
+        <p>Skip the endless swiping. Match with local coffee lovers, vibe check with our AI Spark Meter, and meet up for a real connection.</p>
+        <a href="/download-apk" class="btn-download">Download APK for Android</a>
+    </div>
+    <div class="section">
+        <h2>Why Join The Club?</h2>
+        <div class="features">
+            <div class="feature-card">
+                <h3>⚡ AI Spark Meter</h3>
+                <p>Our intelligent chat meter physically rises and falls based on the vibe of your conversation. No more guessing if they are interested.</p>
+            </div>
+            <div class="feature-card">
+                <h3>📍 Local Matches</h3>
+                <p>Filter connections by your favorite local coffee shops. Match with people who already love your daily spot.</p>
+            </div>
+            <div class="feature-card">
+                <h3>🛡️ Verified Safe</h3>
+                <p>Strict 18+ entry, optional government ID KYC verification, and built-in video dating to ensure the person you meet is real.</p>
+            </div>
+        </div>
+    </div>
+    <div class="section">
+        <h2>Help & FAQ</h2>
+        <div class="faq">
+            <h4>How do I install the APK?</h4>
+            <p>Download the file using the button above. Open your phone's Settings > Security, and enable "Install from Unknown Sources", then tap the downloaded file.</p>
+            <h4>Is the app free to use?</h4>
+            <p>Yes! Matching and chatting are completely free. Premium features like unlimited Virtual Video Dates are available for a small upgrade.</p>
+            <h4>How do I report a bad interaction?</h4>
+            <p>Tap the three-dot menu in the top right of any chat or profile to instantly report or block a user. Our admin team reviews all reports within 24 hours.</p>
+        </div>
+    </div>
+    <div class="footer">
+        <p>&copy; 2026 Let's Have Coffee. All rights reserved.</p>
+        <div>
+            <a href="/privacy">Privacy Policy</a> | 
+            <a href="/terms">Terms of Service</a> | 
+            <a href="mailto:support@letshavecoffee.com">Contact Support</a>
+        </div>
+    </div>
+</body>
+</html>
+"""
+
+PRIVACY_POLICY_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Privacy Policy | Let's Have Coffee</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #1C0F0A; color: #CCC; max-width: 800px; margin: 0 auto; padding: 40px 20px; line-height: 1.6; }
+        h1, h2 { color: #D6AD70; }
+        a { color: #D6AD70; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <a href="/">&larr; Back to Home</a>
+    <h1>Privacy Policy</h1>
+    <p>Last updated: October 2026</p>
+    <h2>1. Information We Collect</h2>
+    <p>We collect information you provide directly to us during registration, including your email, age (must be 18+), gender preferences, location data (when actively using the radar feature), and profile images.</p>
+    <h2>2. User-Generated Content (UGC)</h2>
+    <p>Let's Have Coffee is a social platform. Messages, images, and public comments you post are stored securely on our servers. We maintain a zero-tolerance policy for objectionable content. Users can be blocked or reported directly within the app.</p>
+    <h2>3. How We Use Your Data</h2>
+    <p>Your location data is used strictly to calculate distance to potential matches and is never shared with third parties. Your chat data is processed by our AI Spark Meter in real-time to generate match compatibility scores.</p>
+    <h2>4. Data Deletion</h2>
+    <p>You may request full deletion of your account, photos, and chat history at any time by navigating to Settings > Delete Account within the app, or by contacting our support team.</p>
+</body>
+</html>
+"""
+
+@app.route('/', methods=['GET'])
+def index():
+    return render_template_string(LANDING_PAGE_HTML)
+
+@app.route('/privacy', methods=['GET'])
+def privacy():
+    return render_template_string(PRIVACY_POLICY_HTML)
+
+@app.route('/terms', methods=['GET'])
+def terms():
+    return "<h1>Terms of Service</h1><p>By using Let's Have Coffee, you confirm you are 18 years or older and agree to maintain a respectful, safe environment for all users.</p>"
+
+@app.route('/download-apk', methods=['GET'])
+def download_apk():
+    try:
+        return send_from_directory(app.config['UPLOAD_FOLDER'], 'lhc.apk', as_attachment=True)
+    except FileNotFoundError:
+        return "The APK file is currently being updated. Please check back later.", 404
+
 # ==========================================
 # STANDALONE WEB ADMIN PORTAL
 # ==========================================
@@ -1333,7 +1275,6 @@ ADMIN_DASHBOARD_HTML = """
 </head>
 <body>
     <h1>☕ Let's Have Coffee - Admin</h1>
-    
     <div class="card">
         <h3>🚀 Application Launch</h3>
         <p>Current Trial End Date: <br><b>{{ trial_end if trial_end else 'App Not Launched Yet' }}</b></p>
@@ -1341,7 +1282,6 @@ ADMIN_DASHBOARD_HTML = """
             <button class="danger" type="submit">Start 30-Day Free Trial For All Users</button>
         </form>
     </div>
-
     <div class="card">
         <h3>⚙️ Global Parameters</h3>
         <form action="/admin/action/update_params" method="POST">
@@ -1352,7 +1292,6 @@ ADMIN_DASHBOARD_HTML = """
             <button type="submit">Save Parameters</button>
         </form>
     </div>
-    
     <a href="/admin/logout" style="color: #D6AD70; text-decoration: none; font-weight: bold;">Log Out</a>
 </body>
 </html>
@@ -1402,7 +1341,6 @@ def admin_portal():
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
-        # Now your human password matches your secret key
         if request.form.get('password') == 'qZ822118@@': 
             session['is_admin'] = True
             return redirect(url_for('admin_portal'))
