@@ -1099,12 +1099,19 @@ def post_comment():
     if not profile_id or not commenter_id or not text:
         return jsonify({"status": "error", "message": "Missing fields"}), 400
 
-    lower_text = text.lower()
-    negative_words = ['ugly', 'hate', 'bad', 'horrible', 'stupid', 'loser', 'trash', 'scam']
-    if any(word in lower_text for word in negative_words):
+    # RULE 1: Block self-commenting
+    if str(profile_id) == str(commenter_id):
+        return jsonify({
+            "status": "error", 
+            "message": "You cannot write on your own wall."
+        }), 403
+
+    # RULE 2: AI Positivity Check (Must be Good Vibes Only)
+    sentiment = ai_analyzer.polarity_scores(text)
+    if sentiment['compound'] < 0.2:  # If score is negative or purely neutral
         return jsonify({
             "status": "error",
-            "message": "Public wall keeps good vibes only! Save the spicy banter for private chat rooms ☕"
+            "message": "Public wall keeps good vibes only! Say something nice or save it for private chat rooms ☕"
         }), 400
 
     conn = get_db_connection()
@@ -1114,7 +1121,7 @@ def post_comment():
             VALUES (?, ?, ?, ?, ?)
         ''', (profile_id, commenter_id, commenter_name, commenter_image, text))
         conn.commit()
-        return jsonify({"status": "success", "message": "Comment posted!"}), 201
+        return jsonify({"status": "success", "message": "Good vibes posted!"}), 201
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
