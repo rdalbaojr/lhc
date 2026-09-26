@@ -618,69 +618,105 @@ def get_feed():
     lng = request.args.get('lng', type=float)
 
     conn = get_db_connection()
+    # 1. Update Current User Location
     if lat is not None and lng is not None:
         conn.execute('UPDATE users SET last_lat = ?, last_lng = ? WHERE id = ?', (lat, lng, current_user_id))
         conn.commit()
 
-    prefs = conn.execute('SELECT pref_age_min, pref_age_max, pref_genders, coffee_shop FROM users WHERE id = ?', (current_user_id,)).fetchone()
+    # 2. Fetch Admin Controls
+    config_rows = conn.execute('SELECT * FROM global_config').fetchall()
+    config = {r['key']: r['value'] for r in config_rows}
+    admin_radar_radius = float(config.get('radar_radius', '1.2'))
+    admin_crawler_power = float(config.get('ai_crawler_power', '0.4'))
+
+    # 3. Fetch User Preferences
+    prefs = conn.execute('SELECT * FROM users WHERE id = ?', (current_user_id,)).fetchone()
     age_min = prefs['pref_age_min'] if prefs and prefs['pref_age_min'] else 18
     age_max = prefs['pref_age_max'] if prefs and prefs['pref_age_max'] else 85
     user_shop = prefs['coffee_shop'] if prefs and prefs['coffee_shop'] else ""
 
+    # Ensure we grab preference traits for the crawler compatibility calculation
     query = '''
-        SELECT id, nickname, age, gender, coffee_shop, bio, profile_image, caffeine_status, last_lat, last_lng, last_active
+        SELECT id, nickname, age, gender, coffee_shop, favorite_coffee, body_type, fashion, religion, bio, profile_image, caffeine_status, last_lat, last_lng, last_active 
         FROM users 
         WHERE id != ? AND age >= ? AND age <= ?
     '''
-    params = [current_user_id, age_min, age_max]
-
     cursor = conn.cursor()
-    potential_matches = cursor.execute(query, params).fetchall()
+    potential_matches = cursor.execute(query, [current_user_id, age_min, age_max]).fetchall()
     conn.close()
 
     feed_list = []
     for u in potential_matches:
         u_lat = u['last_lat']
         u_lng = u['last_lng']
-        if lat is not None and lng is not None and u_lat is not None and u_lng is not None:
-            distance = haversine_distance(lat, lng, u_lat, u_lng)
-        else:
-            distance = 1.2 
-
-        avatar = u['profile_image']
-        img_url = f"{request.host_url}uploads/{avatar}" if avatar else "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80"
+        distance = haversine_distance(lat, lng, u_lat, u_lng) if (lat and lng and u_lat and u_lng) else 1.2
         
-        is_coffee_match = user_shop and u['coffee_shop'] and user_shop.strip().lower() == u['coffee_shop'].strip().lower()
-        tag_title = "☕ Shared Coffee Vibe" if is_coffee_match else (u['coffee_shop'] or "Local Cafe")
-
-        last_active_str = u['last_active']
-        is_online = False
-        if last_active_str:
-            try:
-                last_act_dt = datetime.strptime(last_active_str, "%Y-%m-%d %H:%M:%S")
-                if datetime.utcnow() - last_act_dt < timedelta(minutes=5):
-                    is_online = True
-            except Exception:
-                pass
-
-        safe_lat = round(u_lat, 3) if u_lat is not None else None
-        safe_lng = round(u_lng, 3) if u_lng is not None else None
-
-        feed_list.append({
-            "id": u["id"],
-            "name": u["nickname"] or "Anonymous",
-            "age": str(u["age"] or 25),
-            "shop": u["coffee_shop"] or "Local Cafe",
-            "bio": u["bio"] or "Looking for good coffee and great conversation!",
-            "image": img_url,
-            "tags": ["Coffee Lover", tag_title, u["caffeine_status"] or "Craving Latte"],
-            "distance_km": round(distance, 1),
-            "is_online": is_online,
-            "lat": safe_lat, 
-            "lng": safe_lng  
-        })
+        # --- AI CRAWLER SCORING MECHANISM ---
+        match_score = 0.0
         
-    feed_list.sort(key=lambda x: x['distance_km'])
+        # Taste Alignment (40% Weight)
+        user_brew = (prefs['favorite_coffee'] or '').lower() if prefs and 'favorite_coffee' in prefs.keys() else ''
+        cand_brew = (u['favorite_coffee'] or u['coffee_shop'] or '').lower()
+        if user_brew and cand_brew:
+            if user_brew == cand_brew:
+                match_score += 0.40
+            elif any(w in cand_brew for w in user_brew.split() if w):
+                match_score += 0.25
+
+        # Lifestyle Tag Overlap (30% Weight)
+        tags_matched = 0
+        for field in ['body_type', 'fashion', 'religion']:
+            u_val = prefs[field] if prefs and field in prefs.keys() else None
+            c_val = u[field] if field in u.keys() else None
+            if u_val and c_val and u_val == c_val:
+                tags_matched += 1
+        match_score += (tags_matched / 3) * 0.30
+
+        # Proximity Bias (30% Weight)
+        if distance <= 0.2:
+            match_score += 0.30
+        elif distance <= 1.0:
+            match_score += 0.20
+        elif distance <= admin_radar_radius:
+            match_score += 0.10
+
+        # --- ADMIN FILTER ENFORCEMENT ---
+        # Only add the user to the feed if they pass the Admin's Crawler Power threshold AND are within the Radar limit
+        if match_score >= admin_crawler_power and distance <= admin_radar_radius:
+            avatar = u['profile_image']
+            img_url = f"{request.host_url}uploads/{avatar}" if avatar else "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80"
+            
+            is_coffee_match = user_shop and u['coffee_shop'] and user_shop.strip().lower() == u['coffee_shop'].strip().lower()
+            tag_title = "☕ Shared Coffee Vibe" if is_coffee_match else (u['coffee_shop'] or "Local Cafe")
+
+            # Check Online Status
+            last_active_str = u['last_active']
+            is_online = False
+            if last_active_str:
+                try:
+                    last_act_dt = datetime.strptime(last_active_str, "%Y-%m-%d %H:%M:%S")
+                    if datetime.utcnow() - last_act_dt < timedelta(minutes=5):
+                        is_online = True
+                except Exception:
+                    pass
+
+            feed_list.append({
+                "id": u["id"],
+                "name": u["nickname"] or "Anonymous",
+                "age": str(u["age"] or 25),
+                "shop": u["coffee_shop"] or "Local Cafe",
+                "bio": u["bio"] or "Looking for good coffee and great conversation!",
+                "image": img_url,
+                "tags": ["Coffee Lover", tag_title, u["caffeine_status"] or "Craving Latte"],
+                "distance_km": round(distance, 1),
+                "match_score": match_score,
+                "is_online": is_online,
+                "lat": round(u_lat, 3) if u_lat is not None else None, 
+                "lng": round(u_lng, 3) if u_lng is not None else None  
+            })
+        
+    # Sort the feed: Highest AI Match Score first!
+    feed_list.sort(key=lambda x: x['match_score'], reverse=True)
     return jsonify({"status": "success", "feed": feed_list}), 200
 
 @app.route('/uploads/<filename>')
@@ -1326,9 +1362,12 @@ ADMIN_DASHBOARD_HTML = """
     <style>
         body { font-family: Arial, sans-serif; background: #1C0F0A; color: white; padding: 20px; }
         .card { background: #2C1810; padding: 20px; border-radius: 12px; border: 1px solid #D6AD70; margin-bottom: 20px; }
-        input, button { padding: 10px; margin-top: 10px; border-radius: 8px; border: none; width: 100%; max-width: 300px; display: block;}
-        button { background: #D6AD70; font-weight: bold; cursor: pointer; color: black; }
+        input, button { padding: 10px; margin-top: 10px; border-radius: 8px; border: none; width: 100%; max-width: 300px; display: block; box-sizing: border-box;}
+        button { background: #D6AD70; font-weight: bold; cursor: pointer; color: black; margin-top: 15px;}
         .danger { background: #B71C1C; color: white; }
+        hr { border-color: #3A2520; margin: 20px 0; }
+        label { color: #D6AD70; font-size: 14px; font-weight: bold; margin-top: 10px; display: block;}
+        .note { font-size: 11px; color: #888; margin-top: 2px; margin-bottom: 10px;}
     </style>
 </head>
 <body>
@@ -1352,13 +1391,40 @@ ADMIN_DASHBOARD_HTML = """
     </div>
 
     <div class="card">
-        <h3>⚙️ Global Parameters</h3>
+        <h3>⚙️ Global Parameters & Match Engine</h3>
         <form action="/admin/action/update_params" method="POST">
+            
             <label>Radar Search Radius (km):</label>
-            <input type="text" name="radar_radius" value="{{ radar_radius }}">
-            <label>Premium Upgrade Price (PHP):</label>
-            <input type="text" name="premium_price" value="{{ premium_price }}">
-            <button type="submit">Save Parameters</button>
+            <input type="number" step="0.1" name="radar_radius" value="{{ radar_radius }}">
+
+            <label>Spark Unlock Threshold (0.1 to 1.0):</label>
+            <input type="number" step="0.05" name="spark_threshold" value="{{ spark_threshold }}">
+            <div class="note">AI chemistry score required to reveal video calls.</div>
+
+            <label>🤖 AI Crawler Power (0.1 = Lax, 1.0 = Strict):</label>
+            <input type="number" step="0.05" name="ai_crawler_power" value="{{ ai_crawler_power }}">
+            <div class="note">Determines how exactly coffee tastes & preferences must align to show in feed.</div>
+
+            <hr>
+
+            <h3>💰 Subscription Tiers (PHP)</h3>
+            <label>Tier 1 (1 Month):</label>
+            <input type="number" name="tier1_price" value="{{ tier1_price }}">
+
+            <label>Tier 2 (3 Months):</label>
+            <input type="number" name="tier2_price" value="{{ tier2_price }}">
+
+            <label>Tier 3 (6 Months):</label>
+            <input type="number" name="tier3_price" value="{{ tier3_price }}">
+
+            <hr>
+
+            <h3>📱 App Operations</h3>
+            <label>Latest App Version Code (Forces updates):</label>
+            <input type="number" name="latest_version_code" value="{{ latest_version_code }}">
+            <div class="note">Increment this when you want to force old users to download the newest APK.</div>
+
+            <button type="submit">Save All Parameters</button>
         </form>
     </div>
 
@@ -1408,68 +1474,77 @@ def admin_portal():
                                   radar_radius=config.get('radar_radius', '1.2'),
                                   premium_price=config.get('premium_price', '499'))
 
-@app.route('/admin/login', methods=['GET', 'POST'])
-def admin_login():
-    if request.method == 'POST':
-        if request.form.get('password') == 'qZ822118@@': 
-            session['is_admin'] = True
-            return redirect(url_for('admin_portal'))
-        return "Invalid Password", 401
-    return render_template_string(LOGIN_HTML)
-
-@app.route('/admin/action/launch', methods=['POST'])
-def admin_action_launch():
-    if not session.get('is_admin'): return "Unauthorized", 401
+@app.route('/admin', methods=['GET'])
+def admin_portal():
+    if not session.get('is_admin'):
+        return redirect(url_for('admin_login'))
+    
     conn = get_db_connection()
-    future_date = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
-    conn.execute('INSERT OR REPLACE INTO global_config (key, value) VALUES (?, ?)', ('trial_end', future_date))
-    conn.commit()
+    conn.execute('CREATE TABLE IF NOT EXISTS global_config (key TEXT UNIQUE, value TEXT)')
+    rows = conn.execute('SELECT * FROM global_config').fetchall()
+    config = {r['key']: r['value'] for r in rows}
     conn.close()
-    return redirect(url_for('admin_portal'))
+    
+    return render_template_string(ADMIN_DASHBOARD_HTML, 
+                                  trial_end=config.get('trial_end'),
+                                  radar_radius=config.get('radar_radius', '1.2'),
+                                  spark_threshold=config.get('spark_threshold', '0.5'),
+                                  ai_crawler_power=config.get('ai_crawler_power', '0.4'),
+                                  tier1_price=config.get('tier1_price', '299'),
+                                  tier2_price=config.get('tier2_price', '499'),
+                                  tier3_price=config.get('tier3_price', '899'),
+                                  latest_version_code=config.get('latest_version_code', '1'))
 
 @app.route('/admin/action/update_params', methods=['POST'])
 def admin_action_update_params():
     if not session.get('is_admin'): return "Unauthorized", 401
-    radar = request.form.get('radar_radius')
-    price = request.form.get('premium_price')
+    
+    # Save every parameter dynamically
+    keys = ['radar_radius', 'spark_threshold', 'ai_crawler_power', 'tier1_price', 'tier2_price', 'tier3_price', 'latest_version_code']
     conn = get_db_connection()
-    conn.execute('INSERT OR REPLACE INTO global_config (key, value) VALUES (?, ?)', ('radar_radius', radar))
-    conn.execute('INSERT OR REPLACE INTO global_config (key, value) VALUES (?, ?)', ('premium_price', price))
+    for k in keys:
+        val = request.form.get(k)
+        if val is not None:
+            conn.execute('INSERT OR REPLACE INTO global_config (key, value) VALUES (?, ?)', (k, val))
     conn.commit()
     conn.close()
     return redirect(url_for('admin_portal'))
 
-@app.route('/admin/logout')
-def admin_logout():
-    session.pop('is_admin', None)
-    return redirect(url_for('admin_login'))
+@app.route('/app_config', methods=['GET'])
+def get_app_config():
+    """This serves all live parameters directly to the Flutter app"""
+    conn = get_db_connection()
+    conn.execute('CREATE TABLE IF NOT EXISTS global_config (key TEXT UNIQUE, value TEXT)')
+    rows = conn.execute('SELECT * FROM global_config').fetchall()
+    conn.close()
+    config = {r['key']: r['value'] for r in rows}
 
-@app.route('/admin/upload_apk', methods=['POST'])
-def admin_upload_apk():
-    if not session.get('is_admin'): return "Unauthorized", 401
-    
-    if 'apk_file' not in request.files:
-        return "No file uploaded", 400
-        
-    file = request.files['apk_file']
-    if file.filename == '':
-        return "No selected file", 400
-        
-    if file and file.filename.endswith('.apk'):
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], 'lhc.apk')
-        file.save(filepath)
-        return redirect(url_for('admin_portal'))
-        
-    return "Invalid file type. Must be an .apk file.", 400
-@app.route('/app_version', methods=['GET'])
-def app_version():
-    # Set your current live version code here. 
-    # Whenever you upload a new APK, just increment this number (e.g., from 1 to 2)!
     return jsonify({
         "status": "success",
-        "latest_version_code": 2, 
+        "effective_radar_km": float(config.get('radar_radius', '1.2')),
+        "spark_threshold": float(config.get('spark_threshold', '0.5')),
+        "ai_crawler_power": float(config.get('ai_crawler_power', '0.4')),
+        "latest_version_code": int(config.get('latest_version_code', '1')),
+        "trial_end": config.get('trial_end'),
+        "subscription_plans": [
+            {"id": "tier_1m", "duration_months": 1, "price_php": int(config.get('tier1_price', '299')), "badge": "Basic"},
+            {"id": "tier_3m", "duration_months": 3, "price_php": int(config.get('tier2_price', '499')), "badge": "Most Popular"},
+            {"id": "tier_6m", "duration_months": 6, "price_php": int(config.get('tier3_price', '899')), "badge": "Best Value"}
+        ]
+    }), 200
+
+@app.route('/app_version', methods=['GET'])
+def app_version():
+    conn = get_db_connection()
+    row = conn.execute("SELECT value FROM global_config WHERE key = 'latest_version_code'").fetchone()
+    conn.close()
+    
+    latest_code = int(row['value']) if row else 1
+    return jsonify({
+        "status": "success",
+        "latest_version_code": latest_code, 
         "apk_url": "https://lhc-wivj.onrender.com/download-apk",
-        "release_notes": "Added Coffee Radar, Blind Brew matching, and AI Liveness KYC!"
+        "release_notes": "A new brew is available! Update now for improved Radar and AI matches."
     }), 200
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
