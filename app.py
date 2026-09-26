@@ -610,7 +610,49 @@ def get_user_profile(user_id):
             "is_online": is_online
         }
     }), 200
-
+@app.route('/update_coffee_preference', methods=['POST'])
+def update_coffee_preference():
+    data = request.get_json(force=True, silent=True) or {}
+    user_id = data.get('user_id')
+    
+    if not user_id:
+        return jsonify({"success": False, "error": "Missing user ID"}), 400
+        
+    try:
+        conn = get_db_connection()
+        conn.execute('''
+            UPDATE users 
+            SET interested_in = ?,
+                pref_age_min = ?,
+                pref_age_max = ?,
+                max_distance = ?,
+                height = ?,
+                body_type = ?,
+                profession = ?,
+                fashion = ?,
+                religion = ?,
+                favorite_coffee = ?
+            WHERE id = ?
+        ''', (
+            data.get('interested_in', 'Everyone'),
+            data.get('min_age', 18),
+            data.get('max_age', 45),
+            data.get('max_distance', 20),
+            data.get('height', ''),
+            data.get('body_type', ''),
+            data.get('profession', ''),
+            data.get('fashion', ''),
+            data.get('religion', ''),
+            data.get('favorite_coffee', 'Cold Brew'),
+            user_id
+        ))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True, "message": "Preferences saved successfully!"}), 200
+        
+    except Exception as e:
+        print(f"Error saving preferences: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
 @app.route('/update_avatar', methods=['POST'])
 def update_avatar():
     data = request.get_json(force=True, silent=True) or {}
