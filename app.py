@@ -1423,6 +1423,21 @@ ADMIN_DASHBOARD_HTML = """
             <label>Latest App Version Code (Forces updates):</label>
             <input type="number" name="latest_version_code" value="{{ latest_version_code }}">
             <div class="note">Increment this when you want to force old users to download the newest APK.</div>
+            
+            <hr>
+            
+            <h3>📢 Ad Management</h3>
+            <label>Enable In-App Ads:</label>
+            <select name="show_ads" style="padding: 10px; width: 100%; max-width: 300px; background: #1C0F0A; color: white; border: 1px solid #D6AD70; border-radius: 8px;">
+                <option value="1" {% if show_ads == '1' %}selected{% endif %}>Yes - Show Ads</option>
+                <option value="0" {% if show_ads == '0' %}selected{% endif %}>No - Hide Ads</option>
+            </select>
+
+            <label>Ad Banner Image URL:</label>
+            <input type="text" name="ad_image_url" value="{{ ad_image_url }}" placeholder="https://example.com/ad-image.jpg">
+
+            <label>Ad Destination Link:</label>
+            <input type="text" name="ad_target_url" value="{{ ad_target_url }}" placeholder="https://yourwebsite.com">
 
             <button type="submit">Save All Parameters</button>
         </form>
@@ -1458,21 +1473,14 @@ LOGIN_HTML = """
 </html>
 """
 
-@app.route('/admin', methods=['GET'])
-def admin_portal():
-    if not session.get('is_admin'):
-        return redirect(url_for('admin_login'))
-    
-    conn = get_db_connection()
-    conn.execute('CREATE TABLE IF NOT EXISTS global_config (key TEXT UNIQUE, value TEXT)')
-    rows = conn.execute('SELECT * FROM global_config').fetchall()
-    config = {r['key']: r['value'] for r in rows}
-    conn.close()
-    
-    return render_template_string(ADMIN_DASHBOARD_HTML, 
-                                  trial_end=config.get('trial_end'),
-                                  radar_radius=config.get('radar_radius', '1.2'),
-                                  premium_price=config.get('premium_price', '499'))
+@app.route('/admin/login', methods=['GET', 'POST'])
+def admin_login():
+    if request.method == 'POST':
+        if request.form.get('password') == 'qZ822118@@': 
+            session['is_admin'] = True
+            return redirect(url_for('admin_portal'))
+        return "Invalid Password", 401
+    return render_template_string(LOGIN_HTML)
 
 @app.route('/admin', methods=['GET'])
 def admin_portal():
@@ -1493,14 +1501,26 @@ def admin_portal():
                                   tier1_price=config.get('tier1_price', '299'),
                                   tier2_price=config.get('tier2_price', '499'),
                                   tier3_price=config.get('tier3_price', '899'),
-                                  latest_version_code=config.get('latest_version_code', '1'))
+                                  latest_version_code=config.get('latest_version_code', '1'),
+                                  show_ads=config.get('show_ads', '0'),
+                                  ad_image_url=config.get('ad_image_url', ''),
+                                  ad_target_url=config.get('ad_target_url', ''))
+
+@app.route('/admin/action/launch', methods=['POST'])
+def admin_action_launch():
+    if not session.get('is_admin'): return "Unauthorized", 401
+    conn = get_db_connection()
+    future_date = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+    conn.execute('INSERT OR REPLACE INTO global_config (key, value) VALUES (?, ?)', ('trial_end', future_date))
+    conn.commit()
+    conn.close()
+    return redirect(url_for('admin_portal'))
 
 @app.route('/admin/action/update_params', methods=['POST'])
 def admin_action_update_params():
     if not session.get('is_admin'): return "Unauthorized", 401
     
-    # Save every parameter dynamically
-    keys = ['radar_radius', 'spark_threshold', 'ai_crawler_power', 'tier1_price', 'tier2_price', 'tier3_price', 'latest_version_code']
+    keys = ['radar_radius', 'spark_threshold', 'ai_crawler_power', 'tier1_price', 'tier2_price', 'tier3_price', 'latest_version_code', 'show_ads', 'ad_image_url', 'ad_target_url']
     conn = get_db_connection()
     for k in keys:
         val = request.form.get(k)
@@ -1509,6 +1529,29 @@ def admin_action_update_params():
     conn.commit()
     conn.close()
     return redirect(url_for('admin_portal'))
+
+@app.route('/admin/logout')
+def admin_logout():
+    session.pop('is_admin', None)
+    return redirect(url_for('admin_login'))
+
+@app.route('/admin/upload_apk', methods=['POST'])
+def admin_upload_apk():
+    if not session.get('is_admin'): return "Unauthorized", 401
+    
+    if 'apk_file' not in request.files:
+        return "No file uploaded", 400
+        
+    file = request.files['apk_file']
+    if file.filename == '':
+        return "No selected file", 400
+        
+    if file and file.filename.endswith('.apk'):
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], 'lhc.apk')
+        file.save(filepath)
+        return redirect(url_for('admin_portal'))
+        
+    return "Invalid file type. Must be an .apk file.", 400
 
 @app.route('/app_config', methods=['GET'])
 def get_app_config():
@@ -1526,6 +1569,9 @@ def get_app_config():
         "ai_crawler_power": float(config.get('ai_crawler_power', '0.4')),
         "latest_version_code": int(config.get('latest_version_code', '1')),
         "trial_end": config.get('trial_end'),
+        "show_ads": bool(int(config.get('show_ads', '0'))),
+        "ad_image_url": config.get('ad_image_url', ''),
+        "ad_target_url": config.get('ad_target_url', ''),
         "subscription_plans": [
             {"id": "tier_1m", "duration_months": 1, "price_php": int(config.get('tier1_price', '299')), "badge": "Basic"},
             {"id": "tier_3m", "duration_months": 3, "price_php": int(config.get('tier2_price', '499')), "badge": "Most Popular"},
@@ -1546,5 +1592,7 @@ def app_version():
         "apk_url": "https://lhc-wivj.onrender.com/download-apk",
         "release_notes": "A new brew is available! Update now for improved Radar and AI matches."
     }), 200
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
+
