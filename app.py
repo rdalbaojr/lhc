@@ -250,7 +250,33 @@ def setup_database():
     conn.close()
 
 setup_database()
+def check_and_update_db_schema():
+    conn = get_db_connection()
+    new_columns = [
+        ("favorite_coffee", "TEXT DEFAULT 'Cold Brew'"),
+        ("interested_in", "TEXT DEFAULT 'Everyone'"),
+        ("min_age", "INTEGER DEFAULT 18"),
+        ("max_age", "INTEGER DEFAULT 45"),
+        ("max_distance", "INTEGER DEFAULT 20"),
+        ("height", "TEXT"),
+        ("body_type", "TEXT"),
+        ("profession", "TEXT"),
+        ("fashion", "TEXT"),
+        ("religion", "TEXT")
+    ]
+    
+    for col_name, col_type in new_columns:
+        try:
+            conn.execute(f'ALTER TABLE users ADD COLUMN {col_name} {col_type}')
+        except Exception as e:
+            # If the column already exists, it will throw an error, which we can safely ignore
+            pass
+            
+    conn.commit()
+    conn.close()
 
+# Call this immediately so it checks the database every time the server starts!
+check_and_update_db_schema()
 # ==========================================
 # API ENDPOINTS
 # ==========================================
@@ -449,53 +475,49 @@ def register():
         if conn:
             conn.close()
 
-@app.route('/update_preferences', methods=['POST'])
-def update_preferences():
+@app.route('/update_coffee_preference', methods=['POST'])
+def update_coffee_preference():
     data = request.get_json(force=True, silent=True) or {}
     user_id = data.get('user_id')
+    
     if not user_id:
-        return jsonify({"status": "error", "message": "Missing user ID"}), 400
-
-    age_min = data.get('age_min', 18)
-    age_max = data.get('age_max', 85)
-    genders = ",".join(data.get('genders', []))
-    builds = ",".join(data.get('builds', []))
-    habits = ",".join(data.get('habits', []))
-    beliefs = ",".join(data.get('beliefs', []))
-    backgrounds = ",".join(data.get('backgrounds', []))
-
-    conn = get_db_connection()
+        return jsonify({"success": False, "error": "Missing user ID"}), 400
+        
     try:
+        conn = get_db_connection()
         conn.execute('''
-            UPDATE users SET
-            pref_age_min = ?, pref_age_max = ?, pref_genders = ?,
-            pref_builds = ?, pref_habits = ?, pref_beliefs = ?, pref_backgrounds = ?
+            UPDATE users 
+            SET interested_in = ?,
+                min_age = ?,
+                max_age = ?,
+                max_distance = ?,
+                height = ?,
+                body_type = ?,
+                profession = ?,
+                fashion = ?,
+                religion = ?,
+                favorite_coffee = ?
             WHERE id = ?
-        ''', (age_min, age_max, genders, builds, habits, beliefs, backgrounds, user_id))
+        ''', (
+            data.get('interested_in', 'Everyone'),
+            data.get('min_age', 18),
+            data.get('max_age', 45),
+            data.get('max_distance', 20),
+            data.get('height', ''),
+            data.get('body_type', ''),
+            data.get('profession', ''),
+            data.get('fashion', ''),
+            data.get('religion', ''),
+            data.get('favorite_coffee', 'Cold Brew'),
+            user_id
+        ))
         conn.commit()
-        return jsonify({"status": "success", "message": "Preferences updated!"}), 200
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-    finally:
         conn.close()
-
-@app.route('/submit_kyc', methods=['POST'])
-def submit_kyc():
-    data = request.get_json(force=True, silent=True) or {}
-    user_id = data.get('user_id')
-    image_b64 = data.get('image_base64')
-
-    if not user_id or not image_b64:
-        return jsonify({"status": "error", "message": "Missing user ID or image"}), 400
-
-    filename = secure_filename(f"kyc_{user_id}_{int(time.time())}.jpg")
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-
-    try:
-        with open(filepath, "wb") as fh:
-            fh.write(base64.b64decode(image_b64))
+        return jsonify({"success": True, "message": "Preferences saved successfully!"}), 200
+        
     except Exception as e:
-        return jsonify({"status": "error", "message": f"Error saving KYC photo: {e}"}), 500
+        print(f"Error saving preferences: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
     conn = get_db_connection()
     try:
