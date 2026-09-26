@@ -590,20 +590,7 @@ def recover_account():
         return jsonify({"status": "error", "message": "Invalid request type"}), 400
     finally:
         conn.close()
-
-@app.route('/api/auto_upload_apk', methods=['POST'])
-def auto_upload_apk():
-    token = request.headers.get('Authorization')
-    if token != 'Bearer qZ822118@@':
-        return jsonify({"error": "Unauthorized"}), 401
-        
-    if 'apk_file' not in request.files:
-        return jsonify({"error": "No file uploaded"}), 400
-        
-    file = request.files['apk_file']
-    if file.filename == '':
-        return jsonify({"error": "No selected file"}), 400
-        
+   
     if file and file.filename.endswith('.apk'):
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], 'lhc.apk')
         file.save(filepath)
