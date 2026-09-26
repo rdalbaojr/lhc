@@ -225,7 +225,7 @@ def setup_database():
         except sqlite3.OperationalError:
             pass
 
-    # 11. Blocked Users Table (Google Play)
+    # 11. Blocked Users Table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS blocked_users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -236,7 +236,7 @@ def setup_database():
         )
     ''')
 
-    # 12. Reported Users Table (Google Play)
+    # 12. Reported Users Table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS reported_users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -250,6 +250,7 @@ def setup_database():
     conn.close()
 
 setup_database()
+
 def check_and_update_db_schema():
     conn = get_db_connection()
     new_columns = [
@@ -264,19 +265,16 @@ def check_and_update_db_schema():
         ("fashion", "TEXT"),
         ("religion", "TEXT")
     ]
-    
     for col_name, col_type in new_columns:
         try:
             conn.execute(f'ALTER TABLE users ADD COLUMN {col_name} {col_type}')
-        except Exception as e:
-            # If the column already exists, it will throw an error, which we can safely ignore
+        except Exception:
             pass
-            
     conn.commit()
     conn.close()
 
-# Call this immediately so it checks the database every time the server starts!
 check_and_update_db_schema()
+
 # ==========================================
 # API ENDPOINTS
 # ==========================================
@@ -333,12 +331,11 @@ def request_otp():
             with open(target_path, "r") as key_file:
                 BREVO_API_KEY = key_file.read().strip()
         except FileNotFoundError:
-            print("[Notice] Secret file 'brevo_key.txt' not found.")
+            pass
 
     SENDER_EMAIL = "contact@driveelite.ph"
 
     if not BREVO_API_KEY:
-        print(f"[OTP LOG FALLBACK] Email: {email} | Code: {code}")
         return jsonify({"status": "success", "message": "OTP Sent (Fallback)!"}), 200
 
     try:
@@ -353,24 +350,12 @@ def request_otp():
             "subject": "Your LHC Login Code",
             "htmlContent": f"<h2>Your login code is: {code}</h2><p>This code expires in 5 minutes.</p>"
         }
-
-        response = requests.post(
-            "https://api.brevo.com/v3/smtp/email",
-            headers=headers,
-            json=payload,
-            timeout=8
-        )
-        
-        # PRINT EXACT BREVO API RESPONSE TO RENDER LOGS
-        print(f"BREVO API RESPONSE: Status {response.status_code} - {response.text}")
-
+        response = requests.post("https://api.brevo.com/v3/smtp/email", headers=headers, json=payload, timeout=8)
         if response.status_code in [200, 201]:
             return jsonify({"status": "success", "message": "OTP Sent to your Inbox!"}), 200
         else:
-            print(f"[OTP LOG FALLBACK] Email: {email} | Code: {code}")
             return jsonify({"status": "success", "message": "OTP Sent (Fallback)!"}), 200
-    except Exception as e:
-        print(f"[OTP LOG FALLBACK] Email: {email} | Code: {code} | Error: {e}")
+    except Exception:
         return jsonify({"status": "success", "message": "OTP Sent (Fallback)!"}), 200
 
 @app.route('/verify_otp', methods=['POST'])
@@ -452,8 +437,7 @@ def register():
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], avatar_filename)
             with open(filepath, "wb") as fh:
                 fh.write(base64.b64decode(image_b64))
-        except Exception as err:
-            print(f"Error saving avatar: {err}")
+        except Exception:
             avatar_filename = None
 
     conn = None
@@ -475,129 +459,6 @@ def register():
         if conn:
             conn.close()
 
-@app.route('/update_coffee_preference', methods=['POST'])
-def update_coffee_preference():
-    data = request.get_json(force=True, silent=True) or {}
-    user_id = data.get('user_id')
-    
-    if not user_id:
-        return jsonify({"success": False, "error": "Missing user ID"}), 400
-        
-    try:
-        conn = get_db_connection()
-        conn.execute('''
-            UPDATE users 
-            SET interested_in = ?,
-                min_age = ?,
-                max_age = ?,
-                max_distance = ?,
-                height = ?,
-                body_type = ?,
-                profession = ?,
-                fashion = ?,
-                religion = ?,
-                favorite_coffee = ?
-            WHERE id = ?
-        ''', (
-            data.get('interested_in', 'Everyone'),
-            data.get('min_age', 18),
-            data.get('max_age', 45),
-            data.get('max_distance', 20),
-            data.get('height', ''),
-            data.get('body_type', ''),
-            data.get('profession', ''),
-            data.get('fashion', ''),
-            data.get('religion', ''),
-            data.get('favorite_coffee', 'Cold Brew'),
-            user_id
-        ))
-        conn.commit()
-        conn.close()
-        return jsonify({"success": True, "message": "Preferences saved successfully!"}), 200
-        
-    except Exception as e:
-        print(f"Error saving preferences: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
-
-    conn = get_db_connection()
-    try:
-        conn.execute('UPDATE users SET kyc_status = ?, kyc_image = ? WHERE id = ?', ('Pending', filename, user_id))
-        conn.commit()
-        return jsonify({"status": "success", "message": "KYC submitted successfully! Pending review."}), 200
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-    finally:
-        conn.close()
-
-@app.route('/recover_account', methods=['POST'])
-def recover_account():
-    data = request.get_json(force=True, silent=True) or {}
-    recovery_type = data.get('type')
-    ans_teacher = data.get('sq_teacher')
-    ans_dog = data.get('sq_dog')
-    ans_food = data.get('sq_food')
-    ans_phone = data.get('sq_phone')
-    ans_date = data.get('sq_date')
-
-    conn = get_db_connection()
-    try:
-        if recovery_type == 'email':
-            nickname = data.get('nickname', '').strip()
-            query = "SELECT email FROM users WHERE nickname = ?"
-            params = [nickname]
-
-            if ans_teacher is not None:
-                query += " AND sq_teacher = ?"; params.append(ans_teacher.strip().lower())
-            if ans_dog is not None:
-                query += " AND sq_dog = ?"; params.append(ans_dog.strip().lower())
-            if ans_food is not None:
-                query += " AND sq_food = ?"; params.append(ans_food.strip().lower())
-            if ans_phone is not None:
-                query += " AND sq_phone = ?"; params.append(ans_phone.strip().lower())
-            if ans_date is not None:
-                query += " AND sq_date = ?"; params.append(ans_date.strip().lower())
-
-            user = conn.execute(query, params).fetchone()
-            if user:
-                return jsonify({"status": "success", "message": f"Your email is: {user['email']}"}), 200
-            return jsonify({"status": "error", "message": "Answers do not match any records."}), 404
-
-        elif recovery_type == 'password':
-            email = data.get('email', '').strip().lower()
-            new_password = data.get('new_password', '').strip()
-            query = "SELECT id FROM users WHERE email = ?"
-            params = [email]
-
-            if ans_teacher is not None:
-                query += " AND sq_teacher = ?"; params.append(ans_teacher.strip().lower())
-            if ans_dog is not None:
-                query += " AND sq_dog = ?"; params.append(ans_dog.strip().lower())
-            if ans_food is not None:
-                query += " AND sq_food = ?"; params.append(ans_food.strip().lower())
-            if ans_phone is not None:
-                query += " AND sq_phone = ?"; params.append(ans_phone.strip().lower())
-            if ans_date is not None:
-                query += " AND sq_date = ?"; params.append(ans_date.strip().lower())
-
-            user = conn.execute(query, params).fetchone()
-            if user:
-                hashed_pw = generate_password_hash(new_password)
-                conn.execute('UPDATE users SET password = ? WHERE id = ?', (hashed_pw, user['id']))
-                conn.commit()
-                return jsonify({"status": "success", "message": "Password successfully reset! You can now log in."}), 200
-
-            return jsonify({"status": "error", "message": "Answers do not match our records for that email."}), 404
-        return jsonify({"status": "error", "message": "Invalid request type"}), 400
-    finally:
-        conn.close()
-   
-    if file and file.filename.endswith('.apk'):
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], 'lhc.apk')
-        file.save(filepath)
-        return jsonify({"status": "success", "message": "APK updated instantly!"}), 200
-        
-    return jsonify({"error": "Invalid file type."}), 400
-
 @app.route('/feed', methods=['GET'])
 def get_feed():
     current_user_id = request.args.get('user_id', default=1, type=int)
@@ -605,26 +466,22 @@ def get_feed():
     lng = request.args.get('lng', type=float)
 
     conn = get_db_connection()
-    # 1. Update Current User Location
     if lat is not None and lng is not None:
         conn.execute('UPDATE users SET last_lat = ?, last_lng = ? WHERE id = ?', (lat, lng, current_user_id))
         conn.commit()
 
-    # 2. Fetch Admin Controls
-    # 2. Fetch Admin Controls
-config_rows = conn.execute('SELECT * FROM global_config').fetchall()
-config = {r['key']: r['value'] for r in config_rows}
-# Change this from reading km to reading meters and converting to km (meters / 1000.0)
-admin_radar_meters = float(config.get('radar_radius_m', '100.0')) 
-admin_radar_radius = admin_radar_meters / 1000.0
+    # Fetch Admin Controls (Meters converted to KM)
+    config_rows = conn.execute('SELECT * FROM global_config').fetchall()
+    config = {r['key']: r['value'] for r in config_rows}
+    admin_radar_meters = float(config.get('radar_radius_m', '100.0')) 
+    admin_radar_radius = admin_radar_meters / 1000.0
+    admin_crawler_power = float(config.get('ai_crawler_power', '0.4'))
 
-    # 3. Fetch User Preferences
     prefs = conn.execute('SELECT * FROM users WHERE id = ?', (current_user_id,)).fetchone()
     age_min = prefs['pref_age_min'] if prefs and prefs['pref_age_min'] else 18
     age_max = prefs['pref_age_max'] if prefs and prefs['pref_age_max'] else 85
     user_shop = prefs['coffee_shop'] if prefs and prefs['coffee_shop'] else ""
 
-    # Ensure we grab preference traits for the crawler compatibility calculation
     query = '''
         SELECT id, nickname, age, gender, coffee_shop, favorite_coffee, body_type, fashion, religion, bio, profile_image, caffeine_status, last_lat, last_lng, last_active 
         FROM users 
@@ -638,12 +495,9 @@ admin_radar_radius = admin_radar_meters / 1000.0
     for u in potential_matches:
         u_lat = u['last_lat']
         u_lng = u['last_lng']
-        distance = haversine_distance(lat, lng, u_lat, u_lng) if (lat and lng and u_lat and u_lng) else 1.2
+        distance = haversine_distance(lat, lng, u_lat, u_lng) if (lat and lng and u_lat and u_lng) else 0.05
         
-        # --- AI CRAWLER SCORING MECHANISM ---
         match_score = 0.0
-        
-        # Taste Alignment (40% Weight)
         user_brew = (prefs['favorite_coffee'] or '').lower() if prefs and 'favorite_coffee' in prefs.keys() else ''
         cand_brew = (u['favorite_coffee'] or u['coffee_shop'] or '').lower()
         if user_brew and cand_brew:
@@ -652,7 +506,6 @@ admin_radar_radius = admin_radar_meters / 1000.0
             elif any(w in cand_brew for w in user_brew.split() if w):
                 match_score += 0.25
 
-        # Lifestyle Tag Overlap (30% Weight)
         tags_matched = 0
         for field in ['body_type', 'fashion', 'religion']:
             u_val = prefs[field] if prefs and field in prefs.keys() else None
@@ -661,16 +514,13 @@ admin_radar_radius = admin_radar_meters / 1000.0
                 tags_matched += 1
         match_score += (tags_matched / 3) * 0.30
 
-        # Proximity Bias (30% Weight)
-        if distance <= 0.2:
+        if distance <= 0.05:
             match_score += 0.30
-        elif distance <= 1.0:
+        elif distance <= 0.2:
             match_score += 0.20
         elif distance <= admin_radar_radius:
             match_score += 0.10
 
-        # --- ADMIN FILTER ENFORCEMENT ---
-        # Only add the user to the feed if they pass the Admin's Crawler Power threshold AND are within the Radar limit
         if match_score >= admin_crawler_power and distance <= admin_radar_radius:
             avatar = u['profile_image']
             img_url = f"{request.host_url}uploads/{avatar}" if avatar else "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80"
@@ -678,7 +528,6 @@ admin_radar_radius = admin_radar_meters / 1000.0
             is_coffee_match = user_shop and u['coffee_shop'] and user_shop.strip().lower() == u['coffee_shop'].strip().lower()
             tag_title = "☕ Shared Coffee Vibe" if is_coffee_match else (u['coffee_shop'] or "Local Cafe")
 
-            # Check Online Status
             last_active_str = u['last_active']
             is_online = False
             if last_active_str:
@@ -697,14 +546,13 @@ admin_radar_radius = admin_radar_meters / 1000.0
                 "bio": u["bio"] or "Looking for good coffee and great conversation!",
                 "image": img_url,
                 "tags": ["Coffee Lover", tag_title, u["caffeine_status"] or "Craving Latte"],
-                "distance_km": round(distance, 1),
+                "distance_km": round(distance, 3),
                 "match_score": match_score,
                 "is_online": is_online,
                 "lat": round(u_lat, 3) if u_lat is not None else None, 
                 "lng": round(u_lng, 3) if u_lng is not None else None  
             })
         
-    # Sort the feed: Highest AI Match Score first!
     feed_list.sort(key=lambda x: x['match_score'], reverse=True)
     return jsonify({"status": "success", "feed": feed_list}), 200
 
@@ -714,7 +562,7 @@ def serve_file(filename):
 
 @app.route('/heartbeat', methods=['POST'])
 def heartbeat():
-    data = request.json
+    data = request.json or {}
     user_id = data.get('user_id')
     if user_id:
         now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
@@ -872,8 +720,7 @@ def upload_private_moment():
 
     conn = get_db_connection()
     try:
-        conn.execute('INSERT INTO private_moments (user_id, image_base64, caption) VALUES (?, ?, ?)',
-                     (user_id, filename, caption))
+        conn.execute('INSERT INTO private_moments (user_id, image_base64, caption) VALUES (?, ?, ?)', (user_id, filename, caption))
         conn.commit()
         return jsonify({"status": "success", "message": "Private moment saved successfully!"}), 201
     except Exception as e:
@@ -948,8 +795,8 @@ def delete_private_moment(moment_id):
         if os.path.exists(filepath):
             try:
                 os.remove(filepath)
-            except Exception as e:
-                print(f"Error deleting file: {e}")
+            except Exception:
+                pass
 
     conn.execute('DELETE FROM private_moments WHERE id = ?', (moment_id,))
     conn.commit()
@@ -966,20 +813,14 @@ def get_unread_count(user_id):
         pass
 
     cursor = conn.cursor()
-    row = cursor.execute(
-        "SELECT COUNT(*) as unread FROM messages WHERE to_user_id = ? AND is_read = 0",
-        (user_id,)
-    ).fetchone()
+    row = cursor.execute("SELECT COUNT(*) as unread FROM messages WHERE to_user_id = ? AND is_read = 0", (user_id,)).fetchone()
     conn.close()
     return jsonify({"status": "success", "unread": row['unread'] if row else 0}), 200
 
 @app.route('/mark_read/<int:user_id>/<int:sender_id>', methods=['POST'])
 def mark_read(user_id, sender_id):
     conn = get_db_connection()
-    conn.execute(
-        "UPDATE messages SET is_read = 1 WHERE to_user_id = ? AND from_user_id = ?",
-        (user_id, sender_id)
-    )
+    conn.execute("UPDATE messages SET is_read = 1 WHERE to_user_id = ? AND from_user_id = ?", (user_id, sender_id))
     conn.commit()
     conn.close()
     return jsonify({"status": "success"}), 200
@@ -1017,11 +858,7 @@ def get_messages(user1, user2):
             
         spark_level = max(0.0, min(1.0, spark_level))
 
-    return jsonify({
-        "status": "success", 
-        "messages": messages, 
-        "spark_level": spark_level
-    }), 200
+    return jsonify({"status": "success", "messages": messages, "spark_level": spark_level}), 200
 
 @app.route('/send_message', methods=['POST'])
 def send_message():
@@ -1035,10 +872,7 @@ def send_message():
 
     conn = get_db_connection()
     try:
-        conn.execute('''
-            INSERT INTO messages (from_user_id, to_user_id, content)
-            VALUES (?, ?, ?)
-        ''', (from_id, to_id, content))
+        conn.execute('INSERT INTO messages (from_user_id, to_user_id, content) VALUES (?, ?, ?)', (from_id, to_id, content))
         conn.commit()
         return jsonify({"status": "success", "message": "Message sent!"}), 201
     except Exception as e:
@@ -1060,17 +894,11 @@ def create_date_invite():
 
     conn = get_db_connection()
     try:
-        conn.execute('''
-            INSERT INTO date_invites (from_user_id, to_user_id, cafe_name, meet_time, message, status)
-            VALUES (?, ?, ?, ?, ?, 'Pending')
-        ''', (from_user_id, to_user_id, cafe_name, meet_time, message))
-        
+        conn.execute('INSERT INTO date_invites (from_user_id, to_user_id, cafe_name, meet_time, message, status) VALUES (?, ?, ?, ?, ?, ?)', (from_user_id, to_user_id, cafe_name, meet_time, message, 'Pending'))
         conn.execute('INSERT OR IGNORE INTO user_likes (from_user_id, to_user_id) VALUES (?, ?)', (from_user_id, to_user_id))
         conn.execute('INSERT OR IGNORE INTO user_likes (from_user_id, to_user_id) VALUES (?, ?)', (to_user_id, from_user_id))
-        
         conn.commit()
         return jsonify({"status": "success", "message": "Spark sent & instantly matched!"}), 201
-        
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
@@ -1088,27 +916,16 @@ def post_comment():
     if not profile_id or not commenter_id or not text:
         return jsonify({"status": "error", "message": "Missing fields"}), 400
 
-    # RULE 1: Block self-commenting
     if str(profile_id) == str(commenter_id):
-        return jsonify({
-            "status": "error", 
-            "message": "You cannot write on your own wall."
-        }), 403
+        return jsonify({"status": "error", "message": "You cannot write on your own wall."}), 403
 
-    # RULE 2: AI Positivity Check (Must be Good Vibes Only)
     sentiment = ai_analyzer.polarity_scores(text)
-    if sentiment['compound'] < 0.2:  # If score is negative or purely neutral
-        return jsonify({
-            "status": "error",
-            "message": "Public wall keeps good vibes only! Say something nice or save it for private chat rooms ☕"
-        }), 400
+    if sentiment['compound'] < 0.2:
+        return jsonify({"status": "error", "message": "Public wall keeps good vibes only! Say something nice or save it for private chat rooms ☕"}), 400
 
     conn = get_db_connection()
     try:
-        conn.execute('''
-            INSERT INTO profile_comments (profile_user_id, commenter_user_id, commenter_name, commenter_image, comment)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (profile_id, commenter_id, commenter_name, commenter_image, text))
+        conn.execute('INSERT INTO profile_comments (profile_user_id, commenter_user_id, commenter_name, commenter_image, comment) VALUES (?, ?, ?, ?, ?)', (profile_id, commenter_id, commenter_name, commenter_image, text))
         conn.commit()
         return jsonify({"status": "success", "message": "Good vibes posted!"}), 201
     except Exception as e:
@@ -1119,12 +936,7 @@ def post_comment():
 @app.route('/get_comments/<int:profile_user_id>', methods=['GET'])
 def get_comments(profile_user_id):
     conn = get_db_connection()
-    rows = conn.execute('''
-        SELECT id, commenter_user_id, commenter_name, commenter_image, comment, timestamp
-        FROM profile_comments
-        WHERE profile_user_id = ?
-        ORDER BY id DESC
-    ''', (profile_user_id,)).fetchall()
+    rows = conn.execute('SELECT id, commenter_user_id, commenter_name, commenter_image, comment, timestamp FROM profile_comments WHERE profile_user_id = ? ORDER BY id DESC', (profile_user_id,)).fetchall()
     conn.close()
 
     comments = []
@@ -1172,7 +984,6 @@ def upgrade_premium():
     finally:
         conn.close()
 
-
 # ==========================================
 # GOOGLE PLAY COMPLIANCE ROUTES
 # ==========================================
@@ -1188,8 +999,7 @@ def block_user():
     conn = get_db_connection()
     try:
         conn.execute('INSERT OR IGNORE INTO blocked_users (blocker_id, blocked_id) VALUES (?, ?)', (blocker_id, blocked_id))
-        conn.execute('DELETE FROM user_likes WHERE (from_user_id = ? AND to_user_id = ?) OR (from_user_id = ? AND to_user_id = ?)', 
-                     (blocker_id, blocked_id, blocked_id, blocker_id))
+        conn.execute('DELETE FROM user_likes WHERE (from_user_id = ? AND to_user_id = ?) OR (from_user_id = ? AND to_user_id = ?)', (blocker_id, blocked_id, blocked_id, blocker_id))
         conn.commit()
         return jsonify({"status": "success", "message": "User blocked successfully."}), 200
     except Exception as e:
@@ -1217,11 +1027,9 @@ def report_user():
     finally:
         conn.close()
 
-
 # ==========================================
 # PUBLIC LANDING PAGE & COMPLIANCE
 # ==========================================
-
 LANDING_PAGE_HTML = """
 <!DOCTYPE html>
 <html lang="en">
@@ -1259,36 +1067,20 @@ LANDING_PAGE_HTML = """
         <div class="features">
             <div class="feature-card">
                 <h3>⚡ AI Spark Meter</h3>
-                <p>Our intelligent chat meter physically rises and falls based on the vibe of your conversation. No more guessing if they are interested.</p>
+                <p>Our intelligent chat meter physically rises and falls based on the vibe of your conversation.</p>
             </div>
             <div class="feature-card">
                 <h3>📍 Local Matches</h3>
-                <p>Filter connections by your favorite local coffee shops. Match with people who already love your daily spot.</p>
+                <p>Filter connections by your favorite local coffee shops.</p>
             </div>
             <div class="feature-card">
                 <h3>🛡️ Verified Safe</h3>
-                <p>Strict 18+ entry, optional government ID KYC verification, and built-in video dating to ensure the person you meet is real.</p>
+                <p>Strict 18+ entry and optional government ID KYC verification.</p>
             </div>
-        </div>
-    </div>
-    <div class="section">
-        <h2>Help & FAQ</h2>
-        <div class="faq">
-            <h4>How do I install the APK?</h4>
-            <p>Download the file using the button above. Open your phone's Settings > Security, and enable "Install from Unknown Sources", then tap the downloaded file.</p>
-            <h4>Is the app free to use?</h4>
-            <p>Yes! Matching and chatting are completely free. Premium features like unlimited Virtual Video Dates are available for a small upgrade.</p>
-            <h4>How do I report a bad interaction?</h4>
-            <p>Tap the three-dot menu in the top right of any chat or profile to instantly report or block a user. Our admin team reviews all reports within 24 hours.</p>
         </div>
     </div>
     <div class="footer">
         <p>&copy; 2026 Let's Have Coffee. All rights reserved.</p>
-        <div>
-            <a href="/privacy">Privacy Policy</a> | 
-            <a href="/terms">Terms of Service</a> | 
-            <a href="mailto:support@letshavecoffee.com">Contact Support</a>
-        </div>
     </div>
 </body>
 </html>
@@ -1297,26 +1089,10 @@ LANDING_PAGE_HTML = """
 PRIVACY_POLICY_HTML = """
 <!DOCTYPE html>
 <html>
-<head>
-    <title>Privacy Policy | Let's Have Coffee</title>
-    <style>
-        body { font-family: Arial, sans-serif; background: #1C0F0A; color: #CCC; max-width: 800px; margin: 0 auto; padding: 40px 20px; line-height: 1.6; }
-        h1, h2 { color: #D6AD70; }
-        a { color: #D6AD70; text-decoration: none; }
-    </style>
-</head>
-<body>
-    <a href="/">&larr; Back to Home</a>
+<head><title>Privacy Policy</title></head>
+<body style="background:#1C0F0A; color:#CCC; font-family:Arial; padding:40px;">
     <h1>Privacy Policy</h1>
-    <p>Last updated: October 2026</p>
-    <h2>1. Information We Collect</h2>
-    <p>We collect information you provide directly to us during registration, including your email, age (must be 18+), gender preferences, location data (when actively using the radar feature), and profile images.</p>
-    <h2>2. User-Generated Content (UGC)</h2>
-    <p>Let's Have Coffee is a social platform. Messages, images, and public comments you post are stored securely on our servers. We maintain a zero-tolerance policy for objectionable content. Users can be blocked or reported directly within the app.</p>
-    <h2>3. How We Use Your Data</h2>
-    <p>Your location data is used strictly to calculate distance to potential matches and is never shared with third parties. Your chat data is processed by our AI Spark Meter in real-time to generate match compatibility scores.</p>
-    <h2>4. Data Deletion</h2>
-    <p>You may request full deletion of your account, photos, and chat history at any time by navigating to Settings > Delete Account within the app, or by contacting our support team.</p>
+    <p>Your location data is used strictly for radar matching within your specified meter radius.</p>
 </body>
 </html>
 """
@@ -1331,24 +1107,18 @@ def privacy():
 
 @app.route('/terms', methods=['GET'])
 def terms():
-    return "<h1>Terms of Service</h1><p>By using Let's Have Coffee, you confirm you are 18 years or older and agree to maintain a respectful, safe environment for all users.</p>"
+    return "<h1>Terms of Service</h1><p>Must be 18+</p>"
 
 @app.route('/download-apk', methods=['GET'])
 def download_apk():
     try:
-        return send_from_directory(
-            app.config['UPLOAD_FOLDER'], 
-            'lhc.apk', 
-            as_attachment=True,
-            mimetype='application/vnd.android.package-archive'
-        )
+        return send_from_directory(app.config['UPLOAD_FOLDER'], 'lhc.apk', as_attachment=True, mimetype='application/vnd.android.package-archive')
     except FileNotFoundError:
-        return "The APK file is currently being updated. Please check back later.", 404
+        return "The APK file is currently being updated.", 404
 
 # ==========================================
 # STANDALONE WEB ADMIN PORTAL
 # ==========================================
-
 ADMIN_DASHBOARD_HTML = """
 <!DOCTYPE html>
 <html>
@@ -1358,10 +1128,9 @@ ADMIN_DASHBOARD_HTML = """
     <style>
         body { font-family: Arial, sans-serif; background: #1C0F0A; color: white; padding: 20px; }
         .card { background: #2C1810; padding: 20px; border-radius: 12px; border: 1px solid #D6AD70; margin-bottom: 20px; }
-        input, button { padding: 10px; margin-top: 10px; border-radius: 8px; border: none; width: 100%; max-width: 300px; display: block; box-sizing: border-box;}
+        input, button, select { padding: 10px; margin-top: 10px; border-radius: 8px; border: none; width: 100%; max-width: 300px; display: block; box-sizing: border-box;}
         button { background: #D6AD70; font-weight: bold; cursor: pointer; color: black; margin-top: 15px;}
         .danger { background: #B71C1C; color: white; }
-        hr { border-color: #3A2520; margin: 20px 0; }
         label { color: #D6AD70; font-size: 14px; font-weight: bold; margin-top: 10px; display: block;}
         .note { font-size: 11px; color: #888; margin-top: 2px; margin-bottom: 10px;}
     </style>
@@ -1371,7 +1140,6 @@ ADMIN_DASHBOARD_HTML = """
     
     <div class="card">
         <h3>📦 Update Public App (APK)</h3>
-        <p>Upload a new <b>.apk</b> file to instantly update the public download link for all users.</p>
         <form action="/admin/upload_apk" method="POST" enctype="multipart/form-data">
             <input type="file" name="apk_file" accept=".apk" required style="background: #1C0F0A; border: 1px solid #D6AD70; color: white;">
             <button type="submit">Upload & Go Live</button>
@@ -1379,67 +1147,21 @@ ADMIN_DASHBOARD_HTML = """
     </div>
 
     <div class="card">
-        <h3>🚀 Application Launch</h3>
-        <p>Current Trial End Date: <br><b>{{ trial_end if trial_end else 'App Not Launched Yet' }}</b></p>
-        <form action="/admin/action/launch" method="POST">
-            <button class="danger" type="submit">Start 30-Day Free Trial For All Users</button>
-        </form>
-    </div>
-
-    <div class="card">
         <h3>⚙️ Global Parameters & Match Engine</h3>
         <form action="/admin/action/update_params" method="POST">
-            
             <label>Radar Search Radius (meters):</label>
-<input type="number" step="1" name="radar_radius_m" value="{{ radar_radius_m }}">
-<div class="note">Enter distance in meters (e.g., 50 for 50m, 100 for 100m).</div>
+            <input type="number" step="1" name="radar_radius_m" value="{{ radar_radius_m }}">
+            <div class="note">Enter distance in meters (e.g., 50 for 50m, 100 for 100m).</div>
 
             <label>Spark Unlock Threshold (0.1 to 1.0):</label>
             <input type="number" step="0.05" name="spark_threshold" value="{{ spark_threshold }}">
-            <div class="note">AI chemistry score required to reveal video calls.</div>
 
             <label>🤖 AI Crawler Power (0.1 = Lax, 1.0 = Strict):</label>
             <input type="number" step="0.05" name="ai_crawler_power" value="{{ ai_crawler_power }}">
-            <div class="note">Determines how exactly coffee tastes & preferences must align to show in feed.</div>
-
-            <hr>
-
-            <h3>💰 Subscription Tiers (PHP)</h3>
-            <label>Tier 1 (1 Month):</label>
-            <input type="number" name="tier1_price" value="{{ tier1_price }}">
-
-            <label>Tier 2 (3 Months):</label>
-            <input type="number" name="tier2_price" value="{{ tier2_price }}">
-
-            <label>Tier 3 (6 Months):</label>
-            <input type="number" name="tier3_price" value="{{ tier3_price }}">
-
-            <hr>
-
-            <h3>📱 App Operations</h3>
-            <label>Latest App Version Code (Forces updates):</label>
-            <input type="number" name="latest_version_code" value="{{ latest_version_code }}">
-            <div class="note">Increment this when you want to force old users to download the newest APK.</div>
-            
-            <hr>
-            
-            <h3>📢 Ad Management</h3>
-            <label>Enable In-App Ads:</label>
-            <select name="show_ads" style="padding: 10px; width: 100%; max-width: 300px; background: #1C0F0A; color: white; border: 1px solid #D6AD70; border-radius: 8px;">
-                <option value="1" {% if show_ads == '1' %}selected{% endif %}>Yes - Show Ads</option>
-                <option value="0" {% if show_ads == '0' %}selected{% endif %}>No - Hide Ads</option>
-            </select>
-
-            <label>Ad Banner Image URL:</label>
-            <input type="text" name="ad_image_url" value="{{ ad_image_url }}" placeholder="https://example.com/ad-image.jpg">
-
-            <label>Ad Destination Link:</label>
-            <input type="text" name="ad_target_url" value="{{ ad_target_url }}" placeholder="https://yourwebsite.com">
 
             <button type="submit">Save All Parameters</button>
         </form>
     </div>
-
     <a href="/admin/logout" style="color: #D6AD70; text-decoration: none; font-weight: bold;">Log Out</a>
 </body>
 </html>
@@ -1448,22 +1170,13 @@ ADMIN_DASHBOARD_HTML = """
 LOGIN_HTML = """
 <!DOCTYPE html>
 <html>
-<head>
-    <title>Admin Login</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-        body{background:#1C0F0A; color:white; font-family: Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0;}
-        .login-box { background: #2C1810; padding: 30px; border-radius: 12px; border: 1px solid #D6AD70; text-align: center; }
-        input, button { padding: 12px; margin-top: 15px; border-radius: 8px; border: none; width: 90%; }
-        button { background: #D6AD70; font-weight: bold; cursor: pointer; color: black;}
-    </style>
-</head>
-<body>
-    <div class="login-box">
+<head><title>Admin Login</title></head>
+<body style="background:#1C0F0A; color:white; font-family:Arial; display:flex; justify-content:center; align-items:center; height:100vh;">
+    <div style="background:#2C1810; padding:30px; border-radius:12px; border:1px solid #D6AD70; text-align:center;">
         <h2>Admin Login</h2>
         <form action="/admin/login" method="POST">
-            <input type="password" name="password" placeholder="Enter Master Password" required>
-            <button type="submit">Access Portal</button>
+            <input type="password" name="password" placeholder="Enter Master Password" required style="padding:12px; margin-top:15px; border-radius:8px; border:none; width:90%;">
+            <button type="submit" style="background:#D6AD70; font-weight:bold; cursor:pointer; padding:12px; margin-top:15px; width:90%;">Access Portal</button>
         </form>
     </div>
 </body>
@@ -1491,27 +1204,9 @@ def admin_portal():
     conn.close()
     
     return render_template_string(ADMIN_DASHBOARD_HTML, 
-                                  trial_end=config.get('trial_end'),
-                                  radar_radius=config.get('radar_radius', '1.2'),
-                                  spark_threshold=config.get('spark_threshold', '0.5'),
-                                  ai_crawler_power=config.get('ai_crawler_power', '0.4'),
-                                  tier1_price=config.get('tier1_price', '299'),
-                                  tier2_price=config.get('tier2_price', '499'),
-                                  tier3_price=config.get('tier3_price', '899'),
-                                  latest_version_code=config.get('latest_version_code', '1'),
-                                  show_ads=config.get('show_ads', '0'),
-                                  ad_image_url=config.get('ad_image_url', ''),
-                                  ad_target_url=config.get('ad_target_url', ''))
-
-@app.route('/admin/action/launch', methods=['POST'])
-def admin_action_launch():
-    if not session.get('is_admin'): return "Unauthorized", 401
-    conn = get_db_connection()
-    future_date = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
-    conn.execute('INSERT OR REPLACE INTO global_config (key, value) VALUES (?, ?)', ('trial_end', future_date))
-    conn.commit()
-    conn.close()
-    return redirect(url_for('admin_portal'))
+                                radar_radius_m=config.get('radar_radius_m', '100.0'),
+                                spark_threshold=config.get('spark_threshold', '0.5'),
+                                ai_crawler_power=config.get('ai_crawler_power', '0.4'))
 
 @app.route('/admin/action/update_params', methods=['POST'])
 def admin_action_update_params():
@@ -1535,20 +1230,14 @@ def admin_logout():
 @app.route('/admin/upload_apk', methods=['POST'])
 def admin_upload_apk():
     if not session.get('is_admin'): return "Unauthorized", 401
-    
-    if 'apk_file' not in request.files:
-        return "No file uploaded", 400
-        
+    if 'apk_file' not in request.files: return "No file uploaded", 400
     file = request.files['apk_file']
-    if file.filename == '':
-        return "No selected file", 400
-        
+    if file.filename == '': return "No selected file", 400
     if file and file.filename.endswith('.apk'):
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], 'lhc.apk')
         file.save(filepath)
         return redirect(url_for('admin_portal'))
-        
-    return "Invalid file type. Must be an .apk file.", 400
+    return "Invalid file type.", 400
 
 @app.route('/app_config', methods=['GET'])
 def get_app_config():
@@ -1558,47 +1247,41 @@ def get_app_config():
     conn.close()
     config = {r['key']: r['value'] for r in rows}
 
-    # Default to 100 meters if not set
     radar_meters = float(config.get('radar_radius_m', '100.0'))
 
     return jsonify({
         "status": "success",
         "effective_radar_m": radar_meters,
         "effective_radar_km": radar_meters / 1000.0,
-        # ... rest of your config fields ...
+        "spark_threshold": float(config.get('spark_threshold', '0.5')),
+        "ai_crawler_power": float(config.get('ai_crawler_power', '0.4'))
     }), 200
+
 @app.route('/app_version', methods=['GET'])
 def app_version():
     conn = get_db_connection()
     row = conn.execute("SELECT value FROM global_config WHERE key = 'latest_version_code'").fetchone()
     conn.close()
-    
     latest_code = int(row['value']) if row else 1
     return jsonify({
         "status": "success",
         "latest_version_code": latest_code, 
-        "apk_url": "https://lhc-wivj.onrender.com/download-apk",
-        "release_notes": "A new brew is available! Update now for improved Radar and AI matches."
+        "apk_url": "https://lhc-wivj.onrender.com/download-apk"
     }), 200
+
 @app.route('/api/auto_upload_apk', methods=['POST'])
 def auto_upload_apk():
     token = request.headers.get('Authorization')
     if token != 'Bearer qZ822118@@':
         return jsonify({"error": "Unauthorized"}), 401
-        
     if 'apk_file' not in request.files:
         return jsonify({"error": "No file uploaded"}), 400
-        
     file = request.files['apk_file']
-    if file.filename == '':
-        return jsonify({"error": "No selected file"}), 400
-        
     if file and file.filename.endswith('.apk'):
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], 'lhc.apk')
         file.save(filepath)
         return jsonify({"status": "success", "message": "APK updated instantly!"}), 200
-        
     return jsonify({"error": "Invalid file type."}), 400
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
-
