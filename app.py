@@ -1461,6 +1461,15 @@ def admin_upload_apk():
         return redirect(url_for('admin_portal'))
         
     return "Invalid file type. Must be an .apk file.", 400
-
+@app.route('/app_version', methods=['GET'])
+def app_version():
+    # Set your current live version code here. 
+    # Whenever you upload a new APK, just increment this number (e.g., from 1 to 2)!
+    return jsonify({
+        "status": "success",
+        "latest_version_code": 2, 
+        "apk_url": "https://lhc-wivj.onrender.com/download-apk",
+        "release_notes": "Added Coffee Radar, Blind Brew matching, and AI Liveness KYC!"
+    }), 200
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
