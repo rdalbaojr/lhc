@@ -611,10 +611,12 @@ def get_feed():
         conn.commit()
 
     # 2. Fetch Admin Controls
-    config_rows = conn.execute('SELECT * FROM global_config').fetchall()
-    config = {r['key']: r['value'] for r in config_rows}
-    admin_radar_radius = float(config.get('radar_radius', '1.2'))
-    admin_crawler_power = float(config.get('ai_crawler_power', '0.4'))
+    # 2. Fetch Admin Controls
+config_rows = conn.execute('SELECT * FROM global_config').fetchall()
+config = {r['key']: r['value'] for r in config_rows}
+# Change this from reading km to reading meters and converting to km (meters / 1000.0)
+admin_radar_meters = float(config.get('radar_radius_m', '100.0')) 
+admin_radar_radius = admin_radar_meters / 1000.0
 
     # 3. Fetch User Preferences
     prefs = conn.execute('SELECT * FROM users WHERE id = ?', (current_user_id,)).fetchone()
@@ -1388,8 +1390,9 @@ ADMIN_DASHBOARD_HTML = """
         <h3>⚙️ Global Parameters & Match Engine</h3>
         <form action="/admin/action/update_params" method="POST">
             
-            <label>Radar Search Radius (km):</label>
-            <input type="number" step="0.1" name="radar_radius" value="{{ radar_radius }}">
+            <label>Radar Search Radius (meters):</label>
+<input type="number" step="1" name="radar_radius_m" value="{{ radar_radius_m }}">
+<div class="note">Enter distance in meters (e.g., 50 for 50m, 100 for 100m).</div>
 
             <label>Spark Unlock Threshold (0.1 to 1.0):</label>
             <input type="number" step="0.05" name="spark_threshold" value="{{ spark_threshold }}">
@@ -1514,7 +1517,7 @@ def admin_action_launch():
 def admin_action_update_params():
     if not session.get('is_admin'): return "Unauthorized", 401
     
-    keys = ['radar_radius', 'spark_threshold', 'ai_crawler_power', 'tier1_price', 'tier2_price', 'tier3_price', 'latest_version_code', 'show_ads', 'ad_image_url', 'ad_target_url']
+    keys = ['radar_radius_m', 'spark_threshold', 'ai_crawler_power', 'tier1_price', 'tier2_price', 'tier3_price', 'latest_version_code', 'show_ads', 'ad_image_url', 'ad_target_url']
     conn = get_db_connection()
     for k in keys:
         val = request.form.get(k)
@@ -1549,30 +1552,21 @@ def admin_upload_apk():
 
 @app.route('/app_config', methods=['GET'])
 def get_app_config():
-    """This serves all live parameters directly to the Flutter app"""
     conn = get_db_connection()
     conn.execute('CREATE TABLE IF NOT EXISTS global_config (key TEXT UNIQUE, value TEXT)')
     rows = conn.execute('SELECT * FROM global_config').fetchall()
     conn.close()
     config = {r['key']: r['value'] for r in rows}
 
+    # Default to 100 meters if not set
+    radar_meters = float(config.get('radar_radius_m', '100.0'))
+
     return jsonify({
         "status": "success",
-        "effective_radar_km": float(config.get('radar_radius', '1.2')),
-        "spark_threshold": float(config.get('spark_threshold', '0.5')),
-        "ai_crawler_power": float(config.get('ai_crawler_power', '0.4')),
-        "latest_version_code": int(config.get('latest_version_code', '1')),
-        "trial_end": config.get('trial_end'),
-        "show_ads": bool(int(config.get('show_ads', '0'))),
-        "ad_image_url": config.get('ad_image_url', ''),
-        "ad_target_url": config.get('ad_target_url', ''),
-        "subscription_plans": [
-            {"id": "tier_1m", "duration_months": 1, "price_php": int(config.get('tier1_price', '299')), "badge": "Basic"},
-            {"id": "tier_3m", "duration_months": 3, "price_php": int(config.get('tier2_price', '499')), "badge": "Most Popular"},
-            {"id": "tier_6m", "duration_months": 6, "price_php": int(config.get('tier3_price', '899')), "badge": "Best Value"}
-        ]
+        "effective_radar_m": radar_meters,
+        "effective_radar_km": radar_meters / 1000.0,
+        # ... rest of your config fields ...
     }), 200
-
 @app.route('/app_version', methods=['GET'])
 def app_version():
     conn = get_db_connection()
