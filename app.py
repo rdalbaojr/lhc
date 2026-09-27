@@ -1324,6 +1324,19 @@ def auto_upload_apk():
         file.save(filepath)
         return jsonify({"status": "success", "message": "APK updated instantly!"}), 200
     return jsonify({"error": "Invalid file type."}), 400
+@app.route('/app_version', methods=['GET'])
+def get_app_version():
+    # You can bump these numbers whenever you build a new release APK
+    return jsonify({
+        "latest_version_code": 2,
+        "latest_version_name": "1.1.0",
+        "apk_url": "https://lhc-wivj.onrender.com/download/latest.apk",
+        "release_notes": "Added multi-select preferences and performance improvements."
+    }), 200
 
+@app.route('/download/latest.apk', methods=['GET'])
+def download_latest_apk():
+    # Serve your compiled app-release.apk from your server directory
+    return send_file('app-release.apk', as_attachment=True)
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
