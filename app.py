@@ -1266,13 +1266,16 @@ ADMIN_DASHBOARD_HTML = """
 LOGIN_HTML = """
 <!DOCTYPE html>
 <html>
-<head><title>Admin Login</title></head>
-<body style="background:#1C0F0A; color:white; font-family:Arial; display:flex; justify-content:center; align-items:center; height:100vh;">
-    <div style="background:#2C1810; padding:30px; border-radius:12px; border:1px solid #D6AD70; text-align:center;">
-        <h2>Admin Login</h2>
+<head>
+    <title>Admin Login</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="background:#1C0F0A; color:white; font-family:Arial, sans-serif; display:flex; justify-content:center; align-items:center; height:100vh; margin:0;">
+    <div style="background:#2C1810; padding:40px; border-radius:16px; border:2px solid #D6AD70; text-align:center; width:100%; max-width:400px; box-sizing: border-box; box-shadow: 0 8px 24px rgba(0,0,0,0.5);">
+        <h2 style="color: #D6AD70; margin-top: 0; margin-bottom: 24px; font-size: 24px;">Admin Login</h2>
         <form action="/admin/login" method="POST">
-            <input type="password" name="password" placeholder="Enter Master Password" required style="padding:12px; margin-top:15px; border-radius:8px; border:none; width:90%;">
-            <button type="submit" style="background:#D6AD70; font-weight:bold; cursor:pointer; padding:12px; margin-top:15px; width:90%;">Access Portal</button>
+            <input type="password" name="password" placeholder="Enter Master Password" required style="padding:14px; margin-bottom:20px; border-radius:8px; border:1px solid #D6AD70; background:#1C0F0A; color:white; width:100%; box-sizing: border-box; font-size: 16px;">
+            <button type="submit" style="background:#D6AD70; font-weight:bold; cursor:pointer; padding:14px; border-radius:8px; border:none; width:100%; font-size: 16px; color:black;">Access Portal</button>
         </form>
     </div>
 </body>
