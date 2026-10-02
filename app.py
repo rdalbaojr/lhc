@@ -15,6 +15,7 @@ from flask_cors import CORS
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+
 # 1. Initialize the App exactly ONCE
 app = Flask(__name__)
 
@@ -469,7 +470,6 @@ def get_feed():
         conn.execute('UPDATE users SET last_lat = ?, last_lng = ? WHERE id = ?', (lat, lng, current_user_id))
         conn.commit()
 
-    # Fetch Admin Controls (Meters converted to KM)
     config_rows = conn.execute('SELECT * FROM global_config').fetchall()
     config = {r['key']: r['value'] for r in config_rows}
     admin_radar_meters = float(config.get('radar_radius_m', '100.0')) 
@@ -609,6 +609,7 @@ def get_user_profile(user_id):
             "is_online": is_online
         }
     }), 200
+
 @app.route('/update_coffee_preference', methods=['POST'])
 def update_coffee_preference():
     data = request.get_json(force=True, silent=True) or {}
@@ -652,6 +653,7 @@ def update_coffee_preference():
     except Exception as e:
         print(f"Error saving preferences: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+
 @app.route('/update_avatar', methods=['POST'])
 def update_avatar():
     data = request.get_json(force=True, silent=True) or {}
@@ -1261,6 +1263,22 @@ ADMIN_DASHBOARD_HTML = """
 </html>
 """
 
+LOGIN_HTML = """
+<!DOCTYPE html>
+<html>
+<head><title>Admin Login</title></head>
+<body style="background:#1C0F0A; color:white; font-family:Arial; display:flex; justify-content:center; align-items:center; height:100vh;">
+    <div style="background:#2C1810; padding:30px; border-radius:12px; border:1px solid #D6AD70; text-align:center;">
+        <h2>Admin Login</h2>
+        <form action="/admin/login" method="POST">
+            <input type="password" name="password" placeholder="Enter Master Password" required style="padding:12px; margin-top:15px; border-radius:8px; border:none; width:90%;">
+            <button type="submit" style="background:#D6AD70; font-weight:bold; cursor:pointer; padding:12px; margin-top:15px; width:90%;">Access Portal</button>
+        </form>
+    </div>
+</body>
+</html>
+"""
+
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
@@ -1281,10 +1299,13 @@ def admin_portal():
     config = {r['key']: r['value'] for r in rows}
     conn.close()
     
+    video_unlocked = config.get('video_unlocked', 'False') == 'True'
+
     return render_template_string(ADMIN_DASHBOARD_HTML, 
                                 radar_radius_m=config.get('radar_radius_m', '100.0'),
                                 spark_threshold=config.get('spark_threshold', '0.5'),
-                                ai_crawler_power=config.get('ai_crawler_power', '0.4'))
+                                ai_crawler_power=config.get('ai_crawler_power', '0.4'),
+                                video_unlocked=video_unlocked)
 
 @app.route('/admin/action/update_params', methods=['POST'])
 def admin_action_update_params():
@@ -1326,7 +1347,6 @@ def get_app_config():
     config = {r['key']: r['value'] for r in rows}
 
     radar_meters = float(config.get('radar_radius_m', '100.0'))
-    # Extract the boolean state
     video_unlocked = config.get('video_unlocked', 'False') == 'True'
 
     return jsonify({
@@ -1335,8 +1355,9 @@ def get_app_config():
         "effective_radar_km": radar_meters / 1000.0,
         "spark_threshold": float(config.get('spark_threshold', '0.5')),
         "ai_crawler_power": float(config.get('ai_crawler_power', '0.4')),
-        "video_unlocked": video_unlocked  # <-- Now the app knows if it's unlocked!
+        "video_unlocked": video_unlocked
     }), 200
+
 @app.route('/app_version', methods=['GET'])
 def app_version():
     conn = get_db_connection()
@@ -1365,16 +1386,13 @@ def auto_upload_apk():
 
 @app.route('/download/latest.apk', methods=['GET'])
 def download_latest_apk():
-    # Serve your compiled app-release.apk from your server directory
     return send_file('app-release.apk', as_attachment=True)
 
 @app.route('/admin_toggle_video', methods=['POST'])
 def admin_toggle_video():
     data = request.get_json(force=True, silent=True) or {}
-    # Can be triggered by the Flutter app admin menu OR the web admin portal
     is_unlocked = data.get('video_unlocked', False) 
     
-    # Save True/False as a string in the database
     val_str = 'True' if is_unlocked else 'False'
     
     conn = get_db_connection()
