@@ -1139,7 +1139,46 @@ PRIVACY_POLICY_HTML = """
 </body>
 </html>
 """
+CHILD_SAFETY_HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Child Safety Standards | Let's Have Coffee</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #1C0F0A; color: white; padding: 40px; line-height: 1.6; max-width: 800px; margin: 0 auto; }
+        h1 { color: #D6AD70; }
+        h3 { color: #D6AD70; margin-top: 30px; }
+        p, li { color: #CCC; }
+    </style>
+</head>
+<body>
+    <h1>Child Safety Standards & Policies</h1>
+    <p><strong>App Name:</strong> Let's Have Coffee</p>
+    <p><strong>Developer:</strong> Romeo Dulin Albao Jr.</p>
+    
+    <p>At <strong>Let's Have Coffee</strong>, we maintain a strict <strong>zero-tolerance policy</strong> toward any form of Child Sexual Abuse and Exploitation (CSAE) or Child Sexual Abuse Material (CSAM). Our platform is strictly restricted to users aged 18 and older.</p>
 
+    <h3>1. Zero-Tolerance Enforcement</h3>
+    <p>We actively prohibit the creation, upload, sharing, or distribution of any content that exploits, endangers, or targets minors. Any account suspected of violating these terms will be permanently banned immediately.</p>
+
+    <h3>2. In-App Reporting Mechanism</h3>
+    <p>Users can easily report any inappropriate behavior, suspicious accounts, or harmful content directly inside the app utilizing our built-in <strong>Report User</strong> feature available on profiles and chat screens, or by contacting our safety team.</p>
+
+    <h3>3. Designated Child Safety Point of Contact</h3>
+    <p>If you need to report urgent child safety concerns, violations, or legal requests regarding CSAE/CSAM, you can contact our compliance desk directly at:</p>
+    <p><strong>Email:</strong> contact@driveelite.ph</p>
+
+    <h3>4. Law Enforcement Cooperation</h3>
+    <p>We cooperate fully with law enforcement agencies and promptly report confirmed instances of child exploitation to relevant authorities, including the National Center for Missing & Exploited Children (NCMEC).</p>
+</body>
+</html>
+"""
+
+@app.route('/child-safety', methods=['GET'])
+def child_safety():
+    return render_template_string(CHILD_SAFETY_HTML)
 @app.route('/', methods=['GET'])
 def index():
     return render_template_string(LANDING_PAGE_HTML)
