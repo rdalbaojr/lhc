@@ -10,12 +10,11 @@ from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
 
 from agora_token_builder import RtcTokenBuilder
-from flask import Flask, jsonify, request, send_from_directory, session, redirect, url_for, render_template_string
+from flask import Flask, jsonify, request, send_from_directory, send_file, session, redirect, url_for, render_template_string
 from flask_cors import CORS
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-
 # 1. Initialize the App exactly ONCE
 app = Flask(__name__)
 
@@ -1363,15 +1362,6 @@ def auto_upload_apk():
         file.save(filepath)
         return jsonify({"status": "success", "message": "APK updated instantly!"}), 200
     return jsonify({"error": "Invalid file type."}), 400
-@app.route('/app_version', methods=['GET'])
-def get_app_version():
-    # You can bump these numbers whenever you build a new release APK
-    return jsonify({
-        "latest_version_code": 2,
-        "latest_version_name": "1.1.0",
-        "apk_url": "https://lhc-wivj.onrender.com/download/latest.apk",
-        "release_notes": "Added multi-select preferences and performance improvements."
-    }), 200
 
 @app.route('/download/latest.apk', methods=['GET'])
 def download_latest_apk():
