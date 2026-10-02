@@ -1170,16 +1170,41 @@ ADMIN_DASHBOARD_HTML = """
     <style>
         body { font-family: Arial, sans-serif; background: #1C0F0A; color: white; padding: 20px; }
         .card { background: #2C1810; padding: 20px; border-radius: 12px; border: 1px solid #D6AD70; margin-bottom: 20px; }
-        input, button, select { padding: 10px; margin-top: 10px; border-radius: 8px; border: none; width: 100%; max-width: 300px; display: block; box-sizing: border-box;}
+        input[type="number"], input[type="file"], button { padding: 10px; margin-top: 10px; border-radius: 8px; border: none; width: 100%; max-width: 300px; display: block; box-sizing: border-box;}
         button { background: #D6AD70; font-weight: bold; cursor: pointer; color: black; margin-top: 15px;}
-        .danger { background: #B71C1C; color: white; }
         label { color: #D6AD70; font-size: 14px; font-weight: bold; margin-top: 10px; display: block;}
         .note { font-size: 11px; color: #888; margin-top: 2px; margin-bottom: 10px;}
+        
+        /* Toggle Switch Styling */
+        .switch { position: relative; display: inline-block; width: 60px; height: 34px; margin-top: 10px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #555; transition: .4s; border-radius: 34px; }
+        .slider:before { position: absolute; content: ""; height: 26px; width: 26px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: #D6AD70; }
+        input:focus + .slider { box-shadow: 0 0 1px #D6AD70; }
+        input:checked + .slider:before { transform: translateX(26px); }
     </style>
 </head>
 <body>
     <h1>☕ Let's Have Coffee - Admin</h1>
     
+    <div class="card">
+        <h3>📹 Global Video Chat Access</h3>
+        <p class="note">Overrides the 30-day paywall for all users when active.</p>
+        <label class="switch">
+            <input type="checkbox" id="videoToggle" {% if video_unlocked %}checked{% endif %}>
+            <span class="slider"></span>
+        </label>
+        <p id="videoStatusText" style="margin-top:15px; font-size:14px;">
+            <strong>Status:</strong> 
+            {% if video_unlocked %}
+                <span style="color: #4CAF50;">UNLOCKED for Everyone ⚡</span>
+            {% else %}
+                <span style="color: #B71C1C;">Locked (Paywall Active)</span>
+            {% endif %}
+        </p>
+    </div>
+
     <div class="card">
         <h3>📦 Update Public App (APK)</h3>
         <form action="/admin/upload_apk" method="POST" enctype="multipart/form-data">
@@ -1204,23 +1229,35 @@ ADMIN_DASHBOARD_HTML = """
             <button type="submit">Save All Parameters</button>
         </form>
     </div>
+    
     <a href="/admin/logout" style="color: #D6AD70; text-decoration: none; font-weight: bold;">Log Out</a>
-</body>
-</html>
-"""
 
-LOGIN_HTML = """
-<!DOCTYPE html>
-<html>
-<head><title>Admin Login</title></head>
-<body style="background:#1C0F0A; color:white; font-family:Arial; display:flex; justify-content:center; align-items:center; height:100vh;">
-    <div style="background:#2C1810; padding:30px; border-radius:12px; border:1px solid #D6AD70; text-align:center;">
-        <h2>Admin Login</h2>
-        <form action="/admin/login" method="POST">
-            <input type="password" name="password" placeholder="Enter Master Password" required style="padding:12px; margin-top:15px; border-radius:8px; border:none; width:90%;">
-            <button type="submit" style="background:#D6AD70; font-weight:bold; cursor:pointer; padding:12px; margin-top:15px; width:90%;">Access Portal</button>
-        </form>
-    </div>
+    <script>
+        const videoToggle = document.getElementById('videoToggle');
+        const videoStatusText = document.getElementById('videoStatusText');
+
+        if(videoToggle) {
+            videoToggle.addEventListener('change', async function() {
+                const isUnlocked = this.checked;
+                videoStatusText.innerHTML = isUnlocked 
+                    ? '<strong>Status:</strong> <span style="color: #4CAF50;">UNLOCKED for Everyone ⚡</span>' 
+                    : '<strong>Status:</strong> <span style="color: #B71C1C;">Locked (Paywall Active)</span>';
+
+                try {
+                    const response = await fetch('/admin_toggle_video', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ video_unlocked: isUnlocked })
+                    });
+                    if (!response.ok) throw new Error('Server error');
+                } catch (error) {
+                    alert("Network error: Could not update video status.");
+                    this.checked = !isUnlocked; 
+                    videoStatusText.innerHTML = "<strong>Status:</strong> Network Error";
+                }
+            });
+        }
+    </script>
 </body>
 </html>
 """
@@ -1290,15 +1327,17 @@ def get_app_config():
     config = {r['key']: r['value'] for r in rows}
 
     radar_meters = float(config.get('radar_radius_m', '100.0'))
+    # Extract the boolean state
+    video_unlocked = config.get('video_unlocked', 'False') == 'True'
 
     return jsonify({
         "status": "success",
         "effective_radar_m": radar_meters,
         "effective_radar_km": radar_meters / 1000.0,
         "spark_threshold": float(config.get('spark_threshold', '0.5')),
-        "ai_crawler_power": float(config.get('ai_crawler_power', '0.4'))
+        "ai_crawler_power": float(config.get('ai_crawler_power', '0.4')),
+        "video_unlocked": video_unlocked  # <-- Now the app knows if it's unlocked!
     }), 200
-
 @app.route('/app_version', methods=['GET'])
 def app_version():
     conn = get_db_connection()
@@ -1340,3 +1379,19 @@ def download_latest_apk():
     return send_file('app-release.apk', as_attachment=True)
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
+@app.route('/admin_toggle_video', methods=['POST'])
+def admin_toggle_video():
+    data = request.get_json(force=True, silent=True) or {}
+    # Can be triggered by the Flutter app admin menu OR the web admin portal
+    is_unlocked = data.get('video_unlocked', False) 
+    
+    # Save True/False as a string in the database
+    val_str = 'True' if is_unlocked else 'False'
+    
+    conn = get_db_connection()
+    conn.execute('CREATE TABLE IF NOT EXISTS global_config (key TEXT UNIQUE, value TEXT)')
+    conn.execute('INSERT OR REPLACE INTO global_config (key, value) VALUES (?, ?)', ('video_unlocked', val_str))
+    conn.commit()
+    conn.close()
+    
+    return jsonify({"status": "success", "video_unlocked": is_unlocked}), 200
