@@ -1367,8 +1367,7 @@ def auto_upload_apk():
 def download_latest_apk():
     # Serve your compiled app-release.apk from your server directory
     return send_file('app-release.apk', as_attachment=True)
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
+
 @app.route('/admin_toggle_video', methods=['POST'])
 def admin_toggle_video():
     data = request.get_json(force=True, silent=True) or {}
@@ -1385,3 +1384,9 @@ def admin_toggle_video():
     conn.close()
     
     return jsonify({"status": "success", "video_unlocked": is_unlocked}), 200
+
+# ==========================================
+# LAUNCH APP (MUST BE AT THE VERY BOTTOM)
+# ==========================================
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
